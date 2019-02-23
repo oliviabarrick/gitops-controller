@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	runtimeObj "k8s.io/apimachinery/pkg/runtime"
+	rSchema "k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
@@ -44,7 +45,53 @@ const (
 	webhookName      = "git-controller"
 )
 
-// Reconciler for reacting to PersistentVolumeClaim events.
+type ObjectMapping struct {
+	Path string
+	Object runtimeObj.Object
+}
+
+func getMeta(obj runtimeObj.Object) metav1.Object {
+	meta, _ := meta.Accessor(obj)
+	return meta
+}
+
+func getType(obj runtimeObj.Object) rSchema.GroupVersionKind {
+	return obj.GetObjectKind().GroupVersionKind()
+}
+
+func (o *ObjectMapping) Matches(obj runtimeObj.Object) bool {
+	actualMeta := getMeta(o.Object)
+	expectedMeta := getMeta(obj)
+	actualType := getType(o.Object)
+	expectedType := getType(obj)
+
+	if actualMeta.GetName() != expectedMeta.GetName() {
+		return false
+	}
+
+	if actualMeta.GetNamespace() != expectedMeta.GetNamespace() {
+		return false
+	}
+
+	if actualType.Kind != expectedType.Kind {
+		return false
+	}
+
+	return true
+}
+
+func (o *ObjectMapping) Name() string {
+	return getMeta(o.Object).GetName()
+}
+
+func (o *ObjectMapping) Namespace() string {
+	return getMeta(o.Object).GetNamespace()
+}
+
+func (o *ObjectMapping) Kind() string {
+	return getType(o.Object).Kind
+}
+
 type Reconciler struct {
 	lock sync.Mutex
 	client  client.Client
@@ -118,33 +165,44 @@ func (r *Reconciler) Commit(message string) error {
 	return err
 }
 
-func (r *Reconciler) GitPathForResource(kind, namespace, name string) string {
-	return filepath.Join(kind, namespace, name + ".yaml")
+func (r *Reconciler) GitPathForResource(obj runtimeObj.Object) (string, error) {
+	gitPath, err := r.FindObjectInRepo(obj)
+	if err != nil {
+		return "", err
+	}
+
+	if gitPath != "" {
+		return gitPath, nil
+	}
+
+	objMap := ObjectMapping{ Object: obj }
+
+	return filepath.Join(objMap.Kind(), objMap.Namespace(), objMap.Name() + ".yaml"), nil
 }
 
-func (r *Reconciler) PathForResource(resource runtimeObj.Object) string {
-	strKind := resource.GetObjectKind().GroupVersionKind().Kind
-	meta, _ := meta.Accessor(resource)
-	return filepath.Join(r.repoDir, r.GitPathForResource(strKind, meta.GetNamespace(), meta.GetName()))
-}
+func (r *Reconciler) SerializeResource(resource runtimeObj.Object) (string, error) {
+	gitPath, err := r.GitPathForResource(resource)
+	if err != nil {
+		return "", err
+	}
 
-func (r *Reconciler) SerializeResource(resource runtimeObj.Object) error {
+	fullPath := filepath.Join(r.repoDir, gitPath)
+
 	meta, err := meta.Accessor(resource)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	encoder := json.NewYAMLSerializer(json.DefaultMetaFactory, nil, nil)
-	fullPath := r.PathForResource(resource)
 
 	err = os.MkdirAll(filepath.Dir(fullPath), 0700)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	outFile, err := os.Create(fullPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	defer outFile.Close()
@@ -155,7 +213,7 @@ func (r *Reconciler) SerializeResource(resource runtimeObj.Object) error {
 	meta.SetUID(types.UID(""))
 	meta.SetGeneration(0)
 
-	return encoder.Encode(resource, outFile)
+	return gitPath, encoder.Encode(resource, outFile)
 }
 
 func (r *Reconciler) Remove(path string) error {
@@ -181,36 +239,34 @@ func (r *Reconciler) ReconcilerForType(mgr manager.Manager, kind runtimeObj.Obje
 			log.Println("Reconciling:", request.NamespacedName)
 
 			obj := kind.DeepCopyObject()
-			gitPath := r.GitPathForResource(strKind, request.NamespacedName.Namespace, request.NamespacedName.Name)
+			getMeta(obj).SetName(request.NamespacedName.Name)
+			getMeta(obj).SetNamespace(request.NamespacedName.Namespace)
 
+			exists := true
 			err := r.client.Get(context.TODO(), request.NamespacedName, obj)
 			if err != nil {
 				if errors.IsNotFound(err) {
-					log.Println("Snapshot not found:", request.NamespacedName)
-
-					if err := r.Remove(gitPath); err != nil {
-						return reconcile.Result{}, err
-					}
-
-					if err := r.Commit(fmt.Sprintf("Deleting %s", request.NamespacedName.String())); err != nil {
-						return reconcile.Result{}, err
-					}
-
-					return reconcile.Result{}, nil
+					exists = false
+				} else {
+					return reconcile.Result{}, err
 				}
+			}
 
+			var commit string
+			if exists {
+				commit = "Updating"
+				err = r.AddObjectToRepo(obj)
+			} else {
+				commit = "Deleting"
+				err = r.RemoveObjectFromRepo(obj)
+			}
+
+			if err != nil {
 				return reconcile.Result{}, err
 			}
 
-			if err := r.SerializeResource(obj); err != nil {
-				return reconcile.Result{}, err
-			}
-
-			if err := r.Add(gitPath); err != nil {
-				return reconcile.Result{}, err
-			}
-
-			return reconcile.Result{}, r.Commit(fmt.Sprintf("Updated %s", gitPath))
+			commit = fmt.Sprintf("%s %s", commit, request.NamespacedName.String())
+			return reconcile.Result{}, r.Commit(commit)
 		}),
 	})
 	if err != nil {
@@ -222,16 +278,29 @@ func (r *Reconciler) ReconcilerForType(mgr manager.Manager, kind runtimeObj.Obje
 	}, &handler.EnqueueRequestForObject{})
 }
 
-func init() {
-	snapshots.AddToScheme(scheme)
-	corev1.AddToScheme(scheme)
-	extensions.AddToScheme(scheme)
+func (r *Reconciler) RemoveObjectFromRepo(obj runtimeObj.Object) error {
+	path, err := r.GitPathForResource(obj)
+	if err != nil {
+		return err
+	}
+
+	return r.Remove(path)
 }
 
-func main() {
-	decode := serializer.NewCodecFactory(scheme).UniversalDeserializer().Decode
+func (r *Reconciler) AddObjectToRepo(obj runtimeObj.Object) error {
+	path, err := r.SerializeResource(obj)
+	if err != nil {
+		return err
+	}
 
-	err := filepath.Walk("/tmp/myrepo", func(path string, info os.FileInfo, err error) error {
+	return r.Add(path)
+}
+
+func (r *Reconciler) LoadReposYAMLs() ([]ObjectMapping, error) {
+	decode := serializer.NewCodecFactory(scheme).UniversalDeserializer().Decode
+	mappings := []ObjectMapping{}
+
+	return mappings, filepath.Walk("/tmp/myrepo", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -271,20 +340,43 @@ func main() {
 				return err
 			}
 
-			meta, err := meta.Accessor(obj)
-			if err != nil {
-				return err
-			}
-
-			fmt.Println(path, meta.GetNamespace(), meta.GetName(), obj.GetObjectKind().GroupVersionKind().Kind)
+			mappings = append(mappings, ObjectMapping{
+				Path: path,
+				Object: obj,
+			})
 		}
 
 		return nil
 	})
+}
+
+func (r *Reconciler) FindObjectInRepo(obj runtimeObj.Object) (string, error) {
+	objectMappings, err := r.LoadReposYAMLs()
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
 
+	var found ObjectMapping
+
+	for _, objMapping := range objectMappings {
+		if ! objMapping.Matches(obj) {
+			continue
+		}
+
+		found = objMapping
+		break
+	}
+
+	return found.Path, nil
+}
+
+func init() {
+	snapshots.AddToScheme(scheme)
+	corev1.AddToScheme(scheme)
+	extensions.AddToScheme(scheme)
+}
+
+func main() {
 	mgr, err := manager.New(config.GetConfigOrDie(), manager.Options{
 		Scheme: scheme,
 	})
