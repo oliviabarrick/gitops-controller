@@ -2,17 +2,17 @@ package repo
 
 import (
 	"github.com/justinbarrick/git-controller/pkg/yaml"
-	"strings"
-	"gopkg.in/src-d/go-git.v4/plumbing/object"
-	"path/filepath"
 	"gopkg.in/src-d/go-git.v4"
-	"os"
+	"gopkg.in/src-d/go-git.v4/plumbing/object"
 	"k8s.io/apimachinery/pkg/runtime"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 type Repo struct {
-	repo *git.Repository
-	tree *git.Worktree
+	repo    *git.Repository
+	tree    *git.Worktree
 	repoDir string
 }
 
@@ -28,8 +28,8 @@ func NewRepo(repoDir string) (*Repo, error) {
 	}
 
 	return &Repo{
-		repo: repo,
-		tree: tree,
+		repo:    repo,
+		tree:    tree,
 		repoDir: repoDir,
 	}, nil
 }
@@ -56,7 +56,7 @@ func (r *Repo) Commit(message string) error {
 
 	_, err = r.tree.Commit(message, &git.CommitOptions{
 		Author: &object.Signature{
-			Name: "test",
+			Name:  "test",
 			Email: "test@test.com",
 		},
 	})
@@ -86,7 +86,7 @@ func (r *Repo) LoadReposYAMLs() ([]*yaml.ObjectMapping, error) {
 			return nil
 		}
 
-		if ! strings.HasPrefix(rel, "../") {
+		if !strings.HasPrefix(rel, "../") {
 			return nil
 		}
 
@@ -115,7 +115,7 @@ func (r *Repo) FindObjectInRepo(obj runtime.Object) (*yaml.ObjectMapping, error)
 	}
 
 	for _, objMapping := range objectMappings {
-		if ! objMapping.Matches(obj) {
+		if !objMapping.Matches(obj) {
 			continue
 		}
 

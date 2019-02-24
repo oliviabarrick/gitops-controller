@@ -4,11 +4,11 @@ import (
 	"github.com/justinbarrick/git-controller/pkg/reconciler"
 	"github.com/justinbarrick/git-controller/pkg/util"
 	snapshots "github.com/kubernetes-csi/external-snapshotter/pkg/apis/volumesnapshot/v1alpha1"
-	"log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"log"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 )
 
 func main() {
@@ -27,9 +27,9 @@ func main() {
 	reconciler.SetClient(mgr.GetClient())
 
 	if err := reconciler.Register(&snapshots.VolumeSnapshot{
-		TypeMeta: metav1.TypeMeta{ Kind: "VolumeSnapshot", },
+		TypeMeta: metav1.TypeMeta{Kind: "VolumeSnapshot"},
 	}, &snapshots.VolumeSnapshotContent{
-		TypeMeta: metav1.TypeMeta{ Kind: "VolumeSnapshotContent", },
+		TypeMeta: metav1.TypeMeta{Kind: "VolumeSnapshotContent"},
 	}); err != nil {
 		log.Fatal("cannot initialize reconcilers:", err)
 	}

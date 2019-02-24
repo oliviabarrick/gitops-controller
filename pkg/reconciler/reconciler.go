@@ -1,20 +1,20 @@
 package reconciler
 
 import (
-	"github.com/justinbarrick/git-controller/pkg/yaml"
-	"github.com/justinbarrick/git-controller/pkg/repo"
-	"fmt"
-	"path/filepath"
-	"log"
 	"context"
+	"fmt"
+	"github.com/justinbarrick/git-controller/pkg/repo"
+	"github.com/justinbarrick/git-controller/pkg/yaml"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"log"
+	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sync"
 )
 
@@ -24,10 +24,10 @@ const (
 )
 
 type Reconciler struct {
-	lock sync.Mutex
+	lock    sync.Mutex
 	client  client.Client
-	repo *repo.Repo
-	mgr manager.Manager
+	repo    *repo.Repo
+	mgr     manager.Manager
 	repoDir string
 }
 
@@ -39,7 +39,7 @@ func NewReconciler(mgr manager.Manager, repoDir string) (*Reconciler, error) {
 
 	return &Reconciler{
 		repo: repo,
-		mgr: mgr,
+		mgr:  mgr,
 	}, nil
 }
 
@@ -77,7 +77,7 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) error {
 		yaml.GetMeta(obj).SetNamespace(request.NamespacedName.Namespace)
 
 		err := r.client.Get(context.TODO(), request.NamespacedName, obj)
-		if err != nil && ! errors.IsNotFound(err) {
+		if err != nil && !errors.IsNotFound(err) {
 			return reconcile.Result{}, err
 		}
 

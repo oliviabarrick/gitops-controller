@@ -1,24 +1,24 @@
 package yaml
 
 import (
+	"bufio"
 	"github.com/justinbarrick/git-controller/pkg/util"
 	"io"
-	"bufio"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"path/filepath"
-	"k8s.io/apimachinery/pkg/runtime/serializer/json"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
-	"os"
-	"log"
-	"k8s.io/apimachinery/pkg/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	rSchema "k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/runtime/serializer/json"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
+	"log"
+	"os"
+	"path/filepath"
 )
 
 type ObjectMapping struct {
-	File *YAMLFile
+	File   *YAMLFile
 	Object runtime.Object
 }
 
@@ -76,12 +76,12 @@ func (o *ObjectMapping) Save() error {
 
 type YAMLFile struct {
 	Objects []*ObjectMapping
-	Path string
+	Path    string
 }
 
 func NewYAMLFile(path string) *YAMLFile {
 	return &YAMLFile{
-		Path: path,
+		Path:    path,
 		Objects: []*ObjectMapping{},
 	}
 }
@@ -132,7 +132,7 @@ func (y *YAMLFile) Load() error {
 		}
 
 		y.Objects = append(y.Objects, &ObjectMapping{
-			File: y,
+			File:   y,
 			Object: obj,
 		})
 	}
