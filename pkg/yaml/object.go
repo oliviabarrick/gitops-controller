@@ -3,7 +3,6 @@ package yaml
 import (
 	"github.com/justinbarrick/git-controller/pkg/util"
 	"k8s.io/apimachinery/pkg/runtime"
-	"log"
 )
 
 // Stores a reference to an object and a file so that the object can be manipulated.
@@ -56,7 +55,6 @@ func (o *Object) SetObject(obj runtime.Object) {
 
 // Delete the object from the file it is in.
 func (o *Object) Delete() error {
-	log.Println("Deleting object: ", o.File.Path)
 	o.File.RemoveResource(o)
 	err := o.File.Dump()
 	o.File = nil
@@ -65,6 +63,5 @@ func (o *Object) Delete() error {
 
 // Save the object to disk.
 func (o *Object) Save() error {
-	log.Println("Saving object: ", o.File.Path)
 	return o.File.Dump()
 }
