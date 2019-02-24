@@ -94,7 +94,7 @@ func (r *Repo) Commit(message string) error {
 		return err
 	}
 
-	util.Log.Info("commited", "commit", fmt.Sprintf("%x", commitId))
+	util.Log.Info("commited", "commit", commitId.String(), "message", message)
 	return nil
 }
 
@@ -187,12 +187,16 @@ func (r *Repo) AddResource(obj runtime.Object) error {
 		return err
 	}
 
+	action := "Updating"
+
 	if found == nil {
+		action = "Adding"
+
 		meta := util.GetMeta(obj)
 		kind := util.GetType(obj)
 
 		fname := fmt.Sprintf("%s.yaml", meta.GetName())
-		gitPath := filepath.Join(meta.GetNamespace(), kind.Kind, fname)
+		gitPath := filepath.Join(r.workDir, meta.GetNamespace(), kind.Kind, fname)
 
 		found = &yaml.Object{}
 
@@ -205,11 +209,14 @@ func (r *Repo) AddResource(obj runtime.Object) error {
 		return err
 	}
 
-	if err := r.Add(r.RelativePath(found.File.Path)); err != nil {
+	if err := r.Add(found.File.Path); err != nil {
 		return err
 	}
 
-	return r.Commit("Adding resource")
+	meta := util.GetMeta(obj)
+	kind := util.GetType(obj)
+
+	return r.Commit(fmt.Sprintf("%s resource %s/%s/%s", action, kind.Kind, meta.GetNamespace(), meta.GetName()))
 }
 
 // Remove an object from the repository if it exists.
@@ -232,15 +239,12 @@ func (r *Repo) RemoveResource(obj runtime.Object) error {
 		return err
 	}
 
-	if err := r.Add(r.RelativePath(path)); err != nil {
+	if err := r.Add(path); err != nil {
 		return err
 	}
 
-	return r.Commit("Removing resource")
-}
+	meta := util.GetMeta(obj)
+	kind := util.GetType(obj)
 
-// Return a path relative to the git repository root.
-func (r *Repo) RelativePath(path string) string {
-	rel, _ := filepath.Rel(r.repoDir, path)
-	return rel
+	return r.Commit(fmt.Sprintf("Removing resource %s/%s/%s", kind.Kind, meta.GetNamespace(), meta.GetName()))
 }
