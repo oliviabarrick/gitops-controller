@@ -9,14 +9,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"log"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // Reconciler that synchronizes objects in Kubernetes to a git repository.
@@ -42,8 +42,8 @@ func NewReconciler(repoDir string) (*Reconciler, error) {
 	}
 
 	return &Reconciler{
-		repo: repo,
-		mgr:  mgr,
+		repo:   repo,
+		mgr:    mgr,
 		client: mgr.GetClient(),
 	}, nil
 }

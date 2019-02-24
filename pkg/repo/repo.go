@@ -7,6 +7,7 @@ import (
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
 	"k8s.io/apimachinery/pkg/runtime"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,14 +65,19 @@ func (r *Repo) Commit(message string) error {
 		return nil
 	}
 
-	_, err = r.tree.Commit(message, &git.CommitOptions{
+	commitId, err := r.tree.Commit(message, &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  "test",
 			Email: "test@test.com",
-			When: time.Now(),
+			When:  time.Now(),
 		},
 	})
-	return err
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Saved commit (%x)", commitId[:4])
+	return nil
 }
 
 // Add a file to the repository.
@@ -191,7 +197,7 @@ func (r *Repo) RemoveResource(obj runtime.Object) error {
 	if err := found.Delete(); err != nil {
 		return err
 	}
-	
+
 	if err := r.Add(r.RelativePath(path)); err != nil {
 		return err
 	}
