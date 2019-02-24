@@ -4,34 +4,38 @@ import (
 	"context"
 	"fmt"
 	"github.com/justinbarrick/git-controller/pkg/repo"
-	"github.com/justinbarrick/git-controller/pkg/yaml"
+	"github.com/justinbarrick/git-controller/pkg/util"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"log"
-	"path/filepath"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"sync"
+	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 )
 
-const (
-	webhookNamespace = "git-controller"
-	webhookName      = "git-controller"
-)
-
+// Reconciler that synchronizes objects in Kubernetes to a git repository.
 type Reconciler struct {
-	lock    sync.Mutex
 	client  client.Client
 	repo    *repo.Repo
 	mgr     manager.Manager
 	repoDir string
 }
 
-func NewReconciler(mgr manager.Manager, repoDir string) (*Reconciler, error) {
+// Create a new reconciler and checkout the repository.
+func NewReconciler(repoDir string) (*Reconciler, error) {
+	mgr, err := manager.New(config.GetConfigOrDie(), manager.Options{
+		Scheme: util.Scheme,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	repo, err := repo.NewRepo(repoDir)
 	if err != nil {
 		return nil, err
@@ -40,12 +44,8 @@ func NewReconciler(mgr manager.Manager, repoDir string) (*Reconciler, error) {
 	return &Reconciler{
 		repo: repo,
 		mgr:  mgr,
+		client: mgr.GetClient(),
 	}, nil
-}
-
-// Set the Kubernetes client.
-func (r *Reconciler) SetClient(client client.Client) {
-	r.client = client
 }
 
 // Register the reconciler for each prototype object provided.
@@ -59,6 +59,15 @@ func (r *Reconciler) Register(kinds ...runtime.Object) error {
 	return nil
 }
 
+// Return an instantiated object of type kind that has name and namespace initialized
+// to name.
+func (r *Reconciler) DefaultObject(kind runtime.Object, name types.NamespacedName) runtime.Object {
+	obj := kind.DeepCopyObject()
+	util.GetMeta(obj).SetName(name.Name)
+	util.GetMeta(obj).SetNamespace(name.Namespace)
+	return obj
+}
+
 // Create a reconciler for the provided type that checks each object against its
 // definition in git.
 func (r *Reconciler) ReconcilerForType(kind runtime.Object) error {
@@ -67,46 +76,16 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) error {
 	log.Printf("Starting controller for %s", strKind)
 
 	rec := reconcile.Func(func(request reconcile.Request) (reconcile.Result, error) {
-		r.lock.Lock()
-		defer r.lock.Unlock()
-
-		log.Println("Reconciling:", request.NamespacedName)
-
-		obj := kind.DeepCopyObject()
-		yaml.GetMeta(obj).SetName(request.NamespacedName.Name)
-		yaml.GetMeta(obj).SetNamespace(request.NamespacedName.Namespace)
+		obj := r.DefaultObject(kind, request.NamespacedName)
 
 		err := r.client.Get(context.TODO(), request.NamespacedName, obj)
 		if err != nil && !errors.IsNotFound(err) {
 			return reconcile.Result{}, err
+		} else if err != nil && errors.IsNotFound(err) {
+			return reconcile.Result{}, r.repo.RemoveResource(obj)
 		}
 
-		resource, err := r.repo.FindObjectInRepo(obj)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-
-		if resource == nil {
-			resource = &yaml.ObjectMapping{}
-		}
-
-		resource.Object = obj
-
-		if err := resource.Save(); err != nil {
-			return reconcile.Result{}, err
-		}
-
-		gitPath, err := filepath.Rel("/tmp/myrepo/", resource.File.Path)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-
-		if err = r.repo.Add(gitPath); err != nil {
-			return reconcile.Result{}, err
-		}
-
-		commit := fmt.Sprintf("Updating %s", request.NamespacedName.String())
-		return reconcile.Result{}, r.repo.Commit(commit)
+		return reconcile.Result{}, r.repo.AddResource(obj)
 	})
 
 	ctrlr, err := controller.New(name, r.mgr, controller.Options{
@@ -119,4 +98,8 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) error {
 	return ctrlr.Watch(&source.Kind{
 		Type: kind,
 	}, &handler.EnqueueRequestForObject{})
+}
+
+func (r *Reconciler) Start() error {
+	return r.mgr.Start(signals.SetupSignalHandler())
 }
