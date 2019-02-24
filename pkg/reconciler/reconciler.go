@@ -8,7 +8,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"log"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -28,7 +27,7 @@ type Reconciler struct {
 }
 
 // Create a new reconciler and checkout the repository.
-func NewReconciler(repoDir string) (*Reconciler, error) {
+func NewReconciler(repoDir string, manifestsPath string) (*Reconciler, error) {
 	mgr, err := manager.New(config.GetConfigOrDie(), manager.Options{
 		Scheme: util.Scheme,
 	})
@@ -36,7 +35,7 @@ func NewReconciler(repoDir string) (*Reconciler, error) {
 		return nil, err
 	}
 
-	repo, err := repo.NewRepo(repoDir)
+	repo, err := repo.NewRepo(repoDir, manifestsPath)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +72,7 @@ func (r *Reconciler) DefaultObject(kind runtime.Object, name types.NamespacedNam
 func (r *Reconciler) ReconcilerForType(kind runtime.Object) error {
 	strKind := kind.GetObjectKind().GroupVersionKind().Kind
 	name := fmt.Sprintf("%s-controller", strKind)
-	log.Printf("Starting controller for %s", strKind)
+	util.Log.Info("starting controller", "kind", strKind)
 
 	rec := reconcile.Func(func(request reconcile.Request) (reconcile.Result, error) {
 		obj := r.DefaultObject(kind, request.NamespacedName)

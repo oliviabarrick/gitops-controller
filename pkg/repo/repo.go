@@ -5,40 +5,58 @@ import (
 	"github.com/justinbarrick/git-controller/pkg/util"
 	"github.com/justinbarrick/git-controller/pkg/yaml"
 	"gopkg.in/src-d/go-git.v4"
+
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
+	"gopkg.in/src-d/go-git.v4/storage/memory"
+	"gopkg.in/src-d/go-billy.v4/memfs"
+	"gopkg.in/src-d/go-billy.v4"
 	"k8s.io/apimachinery/pkg/runtime"
-	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
 
 // Object for manipulating git repositories.
 type Repo struct {
+	fs      billy.Filesystem
 	repo    *git.Repository
 	tree    *git.Worktree
 	lock    sync.Mutex
+	workDir string
 	repoDir string
 }
 
 // Open a git repository.
-func NewRepo(repoDir string) (*Repo, error) {
-	repo, err := git.PlainOpen(repoDir)
+func NewRepo(repoDir, workDir string) (*Repo, error) {
+	fs := memfs.New()
+
+	util.Log.Info("cloning repo", "repo", repoDir)
+	startTime := time.Now()
+	repo, err := git.Clone(memory.NewStorage(), fs, &git.CloneOptions{
+		URL: repoDir,
+	})
 	if err != nil {
 		return nil, err
 	}
+	duration := time.Now().Sub(startTime).Seconds()
+	util.Log.Info("finished clone", "repo", repoDir, "duration", duration)
 
 	tree, err := repo.Worktree()
 	if err != nil {
 		return nil, err
 	}
 
+	if workDir == "" {
+		workDir = "."
+	}
+
 	return &Repo{
+		fs:      fs,
 		repo:    repo,
 		tree:    tree,
 		repoDir: repoDir,
+		workDir: workDir,
 	}, nil
 }
 
@@ -76,7 +94,7 @@ func (r *Repo) Commit(message string) error {
 		return err
 	}
 
-	log.Printf("Saved commit (%x)", commitId[:4])
+	util.Log.Info("commited", "commit", fmt.Sprintf("%x", commitId))
 	return nil
 }
 
@@ -86,36 +104,52 @@ func (r *Repo) Add(path string) error {
 	return err
 }
 
+func (r *Repo) Walk(path string, cb func(string, os.FileInfo) error) error {
+	files, err := r.fs.ReadDir(path)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		fullPath := filepath.Join(path, file.Name())
+
+		if file.IsDir() {
+			err = r.Walk(fullPath, cb)
+		} else {
+			err = cb(fullPath, file)
+		}
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Load all YAML files in a repository.
 func (r *Repo) LoadRepoYAMLs() ([]*yaml.Object, error) {
 	mappings := []*yaml.Object{}
 
-	return mappings, filepath.Walk(r.repoDir, func(path string, info os.FileInfo, err error) error {
+	allowedExtensions := map[string]bool{
+		".yaml": true,
+		".yml": true,
+		".json": true,
+	}
+
+	return mappings, r.Walk(r.workDir, func(path string, info os.FileInfo) error {
+		if ! allowedExtensions[filepath.Ext(path)] {
+			return nil
+		}
+
+		file := yaml.NewFile(r.fs, path)
+
+		objects, err := file.Load()
 		if err != nil {
 			return err
 		}
 
-		rel, err := filepath.Rel(filepath.Join(r.repoDir, ".git"), path)
-		if err != nil {
-			return nil
-		}
-
-		if !strings.HasPrefix(rel, "../") {
-			return nil
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		file := yaml.NewFile(path)
-
-		err = file.Load()
-		if err != nil {
-			return err
-		}
-
-		mappings = append(mappings, file.Objects...)
+		mappings = append(mappings, objects...)
 		return nil
 	})
 }
@@ -158,11 +192,11 @@ func (r *Repo) AddResource(obj runtime.Object) error {
 		kind := util.GetType(obj)
 
 		fname := fmt.Sprintf("%s.yaml", meta.GetName())
-		gitPath := filepath.Join(r.repoDir, meta.GetNamespace(), kind.Kind, fname)
+		gitPath := filepath.Join(meta.GetNamespace(), kind.Kind, fname)
 
 		found = &yaml.Object{}
 
-		file := yaml.NewFile(gitPath)
+		file := yaml.NewFile(r.fs, gitPath)
 		file.AddResource(found)
 	}
 

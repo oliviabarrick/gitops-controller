@@ -1,15 +1,16 @@
 package yaml
 
 import (
+	"bytes"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"bufio"
 	"github.com/justinbarrick/git-controller/pkg/util"
 	"io"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"log"
+	"gopkg.in/src-d/go-billy.v4"
 	"os"
 	"path/filepath"
 )
@@ -19,11 +20,13 @@ import (
 type File struct {
 	Objects []*Object
 	Path    string
+	fs      billy.Filesystem
 }
 
 // Instantiate a new YAML file.
-func NewFile(path string) *File {
+func NewFile(fs billy.Filesystem, path string) *File {
 	return &File{
+		fs:      fs,
 		Path:    path,
 		Objects: []*Object{},
 	}
@@ -47,7 +50,11 @@ func (y *File) RemoveResource(obj *Object) {
 
 	for _, object := range y.Objects {
 		if object.Matches(obj.Object) {
-			log.Println("Pruning resource from file", util.GetMeta(obj.Object).GetName())
+			meta := util.GetMeta(obj.Object)
+			kind := util.GetType(obj.Object)
+
+			util.Log.Info("pruning resource", "name", meta.GetName(), "namespace",
+			              meta.GetNamespace(), "kind", kind.Kind)
 			continue
 		}
 
@@ -58,12 +65,10 @@ func (y *File) RemoveResource(obj *Object) {
 }
 
 // Load all objects from a YAML file.
-func (y *File) Load() error {
-	decode := serializer.NewCodecFactory(util.Scheme).UniversalDeserializer().Decode
-
-	opened, err := os.Open(y.Path)
+func (y *File) Load() ([]*Object, error) {
+	opened, err := y.fs.Open(y.Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer opened.Close()
 
@@ -73,14 +78,16 @@ func (y *File) Load() error {
 		data, err := yamlReader.Read()
 		if err != nil {
 			if err == io.EOF {
-				return nil
+				return y.Objects, nil
 			}
-			return err
+			return nil, err
 		}
 
-		obj, _, err := decode(data, nil, nil)
-		if err != nil {
-			return err
+		obj := &unstructured.Unstructured{}
+		decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewBuffer(data), len(data))
+
+		if err = decoder.Decode(obj); err != nil {
+			return nil, err
 		}
 
 		y.Objects = append(y.Objects, &Object{
@@ -89,7 +96,7 @@ func (y *File) Load() error {
 		})
 	}
 
-	return nil
+	return y.Objects, nil
 }
 
 // Serialize all objects to a file, or remove the file if there are no objects
@@ -98,21 +105,21 @@ func (y *File) Dump() error {
 	encoder := json.NewYAMLSerializer(json.DefaultMetaFactory, nil, nil)
 
 	if len(y.Objects) == 0 {
-		if _, err := os.Stat(y.Path); os.IsNotExist(err) {
+		if _, err := y.fs.Stat(y.Path); os.IsNotExist(err) {
 			return nil
 		} else if err != nil {
 			return err
 		}
 
-		log.Println("Removing empty file from repo", y.Path)
-		return os.Remove(y.Path)
+		util.Log.Info("deleting empty file", "path", y.Path)
+		return y.fs.Remove(y.Path)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(y.Path), 0700); err != nil {
+	if err := y.fs.MkdirAll(filepath.Dir(y.Path), 0700); err != nil {
 		return err
 	}
 
-	outFile, err := os.Create(y.Path)
+	outFile, err := y.fs.Create(y.Path)
 	if err != nil {
 		return err
 	}
@@ -125,7 +132,10 @@ func (y *File) Dump() error {
 		}
 
 		meta := util.GetMeta(obj.Object)
-		log.Println("Dumping", meta.GetName(), "to file", y.Path)
+		kind := util.GetType(obj.Object)
+
+		util.Log.Info("saving object", "name", meta.GetName(), "path", y.Path,
+		              "kind", kind.Kind, "namespace", meta.GetNamespace())
 
 		meta.SetResourceVersion("")
 		meta.SetCreationTimestamp(metav1.Time{})
