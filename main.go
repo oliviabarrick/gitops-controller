@@ -16,13 +16,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"os"
 	snapshots "github.com/kubernetes-csi/external-snapshotter/pkg/apis/volumesnapshot/v1alpha1"
-	"github.com/justinbarrick/backup-controller/pkg/runtime"
 	"log"
 	"context"
 	"k8s.io/apimachinery/pkg/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	runtimeObj "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime"
 	rSchema "k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -36,8 +35,8 @@ import (
 )
 
 var (
-	scheme = runtimeObj.NewScheme()
-	defaulter = runtimeObj.ObjectDefaulter(scheme)
+	scheme = runtime.NewScheme()
+	defaulter = runtime.ObjectDefaulter(scheme)
 )
 
 const (
@@ -46,20 +45,20 @@ const (
 )
 
 type ObjectMapping struct {
-	Path string
-	Object runtimeObj.Object
+	File *YAMLFile
+	Object runtime.Object
 }
 
-func getMeta(obj runtimeObj.Object) metav1.Object {
+func getMeta(obj runtime.Object) metav1.Object {
 	meta, _ := meta.Accessor(obj)
 	return meta
 }
 
-func getType(obj runtimeObj.Object) rSchema.GroupVersionKind {
+func getType(obj runtime.Object) rSchema.GroupVersionKind {
 	return obj.GetObjectKind().GroupVersionKind()
 }
 
-func (o *ObjectMapping) Matches(obj runtimeObj.Object) bool {
+func (o *ObjectMapping) Matches(obj runtime.Object) bool {
 	actualMeta := getMeta(o.Object)
 	expectedMeta := getMeta(obj)
 	actualType := getType(o.Object)
@@ -92,10 +91,123 @@ func (o *ObjectMapping) Kind() string {
 	return getType(o.Object).Kind
 }
 
+func (o *ObjectMapping) Save() error {
+	if o.File == nil {
+		yamlFile := NewYAMLFile("/tmp/myrepo/volumesnapshot.yaml")
+		yamlFile.AddResource(o)
+	}
+
+	log.Println("Saving object: ", o.File.path)
+	return o.File.Dump()
+}
+
+type YAMLFile struct {
+	objects []*ObjectMapping
+	path string
+}
+
+func NewYAMLFile(path string) *YAMLFile {
+	return &YAMLFile{
+		path: path,
+		objects: []*ObjectMapping{},
+	}
+}
+
+func (y *YAMLFile) GetResource(resource runtime.Object) *ObjectMapping {
+	for _, obj := range y.objects {
+		if obj.Matches(resource) {
+			return obj
+		}
+	}
+
+	return nil
+}
+
+func (y *YAMLFile) SetResource(resource runtime.Object) {
+	obj := y.GetResource(resource)
+	obj.Object = resource
+}
+
+func (y *YAMLFile) AddResource(obj *ObjectMapping) {
+	y.objects = append(y.objects, obj)
+	obj.File = y
+}
+
+func (y *YAMLFile) Load() error {
+	decode := serializer.NewCodecFactory(scheme).UniversalDeserializer().Decode
+
+	opened, err := os.Open(y.path)
+	if err != nil {
+		return err
+	}
+	defer opened.Close()
+
+	yamlReader := yaml.NewYAMLReader(bufio.NewReader(opened))
+
+	for {
+		data, err := yamlReader.Read()
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+
+		obj, _, err := decode(data, nil, nil)
+		if err != nil {
+			return err
+		}
+
+		y.objects = append(y.objects, &ObjectMapping{
+			File: y,
+			Object: obj,
+		})
+	}
+
+	return nil
+}
+
+func (y *YAMLFile) Dump() error {
+	encoder := json.NewYAMLSerializer(json.DefaultMetaFactory, nil, nil)
+
+	log.Println("Dumping file: ", y.path)
+	if err := os.MkdirAll(filepath.Dir(y.path), 0700); err != nil {
+		return err
+	}
+
+	outFile, err := os.Create(y.path)
+	if err != nil {
+		return err
+	}
+
+	defer outFile.Close()
+
+	for index, obj := range y.objects {
+		if index != 0 {
+			outFile.Write([]byte("---\n"))
+		}
+
+		meta := getMeta(obj.Object)
+		log.Println("Dumping object: ", meta.GetName())
+
+		meta.SetResourceVersion("")
+		meta.SetCreationTimestamp(metav1.Time{})
+		meta.SetSelfLink("")
+		meta.SetUID(types.UID(""))
+		meta.SetGeneration(0)
+
+		err = encoder.Encode(obj.Object, outFile)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 type Reconciler struct {
 	lock sync.Mutex
 	client  client.Client
-	runtime *runtime.Runtime
 	repo *git.Repository
 	tree *git.Worktree
 	repoDir string
@@ -119,21 +231,9 @@ func NewReconciler(repoDir string) (*Reconciler, error) {
 	}, nil
 }
 
-// Returns the type that the reconciler watches.
-func (r *Reconciler) GetType() []runtimeObj.Object {
-	return []runtimeObj.Object{
-		&snapshots.VolumeSnapshot{},
-	}
-}
-
 // Set the Kubernetes client.
 func (r *Reconciler) SetClient(client client.Client) {
 	r.client = client
-}
-
-// Set the backup-controller runtime.
-func (r *Reconciler) SetRuntime(runtime *runtime.Runtime) {
-	r.runtime = runtime
 }
 
 func (r *Reconciler) IsClean() (bool, error) {
@@ -165,57 +265,6 @@ func (r *Reconciler) Commit(message string) error {
 	return err
 }
 
-func (r *Reconciler) GitPathForResource(obj runtimeObj.Object) (string, error) {
-	gitPath, err := r.FindObjectInRepo(obj)
-	if err != nil {
-		return "", err
-	}
-
-	if gitPath != "" {
-		return gitPath, nil
-	}
-
-	objMap := ObjectMapping{ Object: obj }
-
-	return filepath.Join(objMap.Kind(), objMap.Namespace(), objMap.Name() + ".yaml"), nil
-}
-
-func (r *Reconciler) SerializeResource(resource runtimeObj.Object) (string, error) {
-	gitPath, err := r.GitPathForResource(resource)
-	if err != nil {
-		return "", err
-	}
-
-	fullPath := filepath.Join(r.repoDir, gitPath)
-
-	meta, err := meta.Accessor(resource)
-	if err != nil {
-		return "", err
-	}
-
-	encoder := json.NewYAMLSerializer(json.DefaultMetaFactory, nil, nil)
-
-	err = os.MkdirAll(filepath.Dir(fullPath), 0700)
-	if err != nil {
-		return "", err
-	}
-
-	outFile, err := os.Create(fullPath)
-	if err != nil {
-		return "", err
-	}
-
-	defer outFile.Close()
-
-	meta.SetResourceVersion("")
-	meta.SetCreationTimestamp(metav1.Time{})
-	meta.SetSelfLink("")
-	meta.SetUID(types.UID(""))
-	meta.SetGeneration(0)
-
-	return gitPath, encoder.Encode(resource, outFile)
-}
-
 func (r *Reconciler) Remove(path string) error {
 	_, err := r.tree.Remove(path)
 	return err
@@ -227,7 +276,7 @@ func (r *Reconciler) Add(path string) error {
 }
 
 // Reconcile PersistentVolumeClaims by updating the backups map with information about the PVC.
-func (r *Reconciler) ReconcilerForType(mgr manager.Manager, kind runtimeObj.Object) error {
+func (r *Reconciler) ReconcilerForType(mgr manager.Manager, kind runtime.Object) error {
 	strKind := kind.GetObjectKind().GroupVersionKind().Kind
 	log.Printf("Starting controller for %s", strKind)
 
@@ -242,30 +291,36 @@ func (r *Reconciler) ReconcilerForType(mgr manager.Manager, kind runtimeObj.Obje
 			getMeta(obj).SetName(request.NamespacedName.Name)
 			getMeta(obj).SetNamespace(request.NamespacedName.Namespace)
 
-			exists := true
 			err := r.client.Get(context.TODO(), request.NamespacedName, obj)
-			if err != nil {
-				if errors.IsNotFound(err) {
-					exists = false
-				} else {
-					return reconcile.Result{}, err
-				}
+			if err != nil && ! errors.IsNotFound(err) {
+				return reconcile.Result{}, err
 			}
 
-			var commit string
-			if exists {
-				commit = "Updating"
-				err = r.AddObjectToRepo(obj)
-			} else {
-				commit = "Deleting"
-				err = r.RemoveObjectFromRepo(obj)
-			}
-
+			resource, err := r.FindObjectInRepo(obj)
 			if err != nil {
 				return reconcile.Result{}, err
 			}
 
-			commit = fmt.Sprintf("%s %s", commit, request.NamespacedName.String())
+			if resource == nil {
+				resource = &ObjectMapping{}
+			}
+
+			resource.Object = obj
+
+			if err := resource.Save(); err != nil {
+				return reconcile.Result{}, err
+			}
+
+			gitPath, err := filepath.Rel("/tmp/myrepo/", resource.File.path)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+
+			if err = r.Add(gitPath); err != nil {
+				return reconcile.Result{}, err
+			}
+
+			commit := fmt.Sprintf("Updating %s", request.NamespacedName.String())
 			return reconcile.Result{}, r.Commit(commit)
 		}),
 	})
@@ -278,27 +333,8 @@ func (r *Reconciler) ReconcilerForType(mgr manager.Manager, kind runtimeObj.Obje
 	}, &handler.EnqueueRequestForObject{})
 }
 
-func (r *Reconciler) RemoveObjectFromRepo(obj runtimeObj.Object) error {
-	path, err := r.GitPathForResource(obj)
-	if err != nil {
-		return err
-	}
-
-	return r.Remove(path)
-}
-
-func (r *Reconciler) AddObjectToRepo(obj runtimeObj.Object) error {
-	path, err := r.SerializeResource(obj)
-	if err != nil {
-		return err
-	}
-
-	return r.Add(path)
-}
-
-func (r *Reconciler) LoadReposYAMLs() ([]ObjectMapping, error) {
-	decode := serializer.NewCodecFactory(scheme).UniversalDeserializer().Decode
-	mappings := []ObjectMapping{}
+func (r *Reconciler) LoadReposYAMLs() ([]*ObjectMapping, error) {
+	mappings := []*ObjectMapping{}
 
 	return mappings, filepath.Walk("/tmp/myrepo", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -318,45 +354,25 @@ func (r *Reconciler) LoadReposYAMLs() ([]ObjectMapping, error) {
 			return nil
 		}
 
-		opened, err := os.Open(path)
+		file := NewYAMLFile(path)
+
+		err = file.Load()
 		if err != nil {
 			return err
 		}
-		defer opened.Close()
 
-		yamlReader := yaml.NewYAMLReader(bufio.NewReader(opened))
-
-		for {
-			data, err := yamlReader.Read()
-			if err != nil {
-				if err == io.EOF {
-					return nil
-				}
-				return err
-			}
-
-			obj, _, err := decode(data, nil, nil)
-			if err != nil {
-				return err
-			}
-
-			mappings = append(mappings, ObjectMapping{
-				Path: path,
-				Object: obj,
-			})
-		}
-
+		mappings = append(mappings, file.objects...)
 		return nil
 	})
 }
 
-func (r *Reconciler) FindObjectInRepo(obj runtimeObj.Object) (string, error) {
+func (r *Reconciler) FindObjectInRepo(obj runtime.Object) (*ObjectMapping, error) {
+	var found *ObjectMapping
+
 	objectMappings, err := r.LoadReposYAMLs()
 	if err != nil {
-		return "", err
+		return found, err
 	}
-
-	var found ObjectMapping
 
 	for _, objMapping := range objectMappings {
 		if ! objMapping.Matches(obj) {
@@ -367,7 +383,7 @@ func (r *Reconciler) FindObjectInRepo(obj runtimeObj.Object) (string, error) {
 		break
 	}
 
-	return found.Path, nil
+	return found, nil
 }
 
 func init() {
