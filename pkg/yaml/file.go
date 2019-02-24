@@ -37,7 +37,6 @@ func (y *File) AddResource(obj *Object) {
 		}
 	}
 
-	log.Println("Adding resource to file", obj.Name())
 	y.Objects = append(y.Objects, obj)
 	obj.File = y
 }

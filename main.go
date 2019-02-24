@@ -2,8 +2,7 @@ package main
 
 import (
 	"github.com/justinbarrick/git-controller/pkg/reconciler"
-	snapshots "github.com/kubernetes-csi/external-snapshotter/pkg/apis/volumesnapshot/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/justinbarrick/git-controller/pkg/util"
 	"log"
 )
 
@@ -13,11 +12,11 @@ func main() {
 		log.Fatal("cannot open repository:", err)
 	}
 
-	if err := reconciler.Register(&snapshots.VolumeSnapshot{
-		TypeMeta: metav1.TypeMeta{Kind: "VolumeSnapshot"},
-	}, &snapshots.VolumeSnapshotContent{
-		TypeMeta: metav1.TypeMeta{Kind: "VolumeSnapshotContent"},
-	}); err != nil {
+	if err := reconciler.Register(
+		util.Kind("VolumeSnapshot", "snapshot.storage.k8s.io", "v1alpha1"),
+		util.Kind("VolumeSnapshotContent", "snapshot.storage.k8s.io", "v1alpha1"),
+		util.Kind("Deployment", "extensions", "v1beta1"),
+	); err != nil {
 		log.Fatal("cannot initialize reconcilers:", err)
 	}
 
