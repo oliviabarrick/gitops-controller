@@ -142,6 +142,11 @@ func (r *Repo) Walk(path string, cb func(string, os.FileInfo) error) error {
 func (r *Repo) LoadRepoYAMLs() ([]*yaml.Object, error) {
 	mappings := []*yaml.Object{}
 
+	err := r.Pull()
+	if err != nil {
+		return mappings, err
+	}
+
 	allowedExtensions := map[string]bool{
 		".yaml": true,
 		".yml": true,
@@ -253,4 +258,47 @@ func (r *Repo) RemoveResource(obj runtime.Object, found *yaml.Object) error {
 	kind := util.GetType(obj)
 
 	return r.Commit(fmt.Sprintf("Removing resource %s/%s/%s", kind.Kind, meta.GetNamespace(), meta.GetName()))
+}
+
+func (r *Repo) Push() error {
+	if r.repoDir == "" {
+		return nil
+	}
+
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	util.Log.Info("pushing", "repo", r.repoDir)
+	startTime := time.Now()
+	err := r.repo.Push(&git.PushOptions{})
+
+	duration := time.Now().Sub(startTime).Seconds()
+	util.Log.Info("pushed", "duration", duration, "repo", r.repoDir)
+
+	if err == git.NoErrAlreadyUpToDate {
+		return nil
+	}
+
+	return err
+}
+
+func (r *Repo) Pull() error {
+	if r.repoDir == "" {
+		return nil
+	}
+
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	util.Log.Info("pulling", "repo", r.repoDir)
+	startTime := time.Now()
+	err := r.tree.Pull(&git.PullOptions{})
+	duration := time.Now().Sub(startTime).Seconds()
+	util.Log.Info("pulled", "duration", duration, "repo", r.repoDir)
+
+	if err == git.NoErrAlreadyUpToDate {
+		return nil
+	}
+
+	return err
 }

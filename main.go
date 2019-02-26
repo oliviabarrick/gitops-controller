@@ -8,7 +8,12 @@ import (
 
 
 func main() {
-	reconciler, err := reconciler.NewReconciler(os.Args[1], os.Args[2])
+	workDir := "."
+	if len(os.Args) > 2 {
+		workDir = os.Args[2]
+	}
+
+	reconciler, err := reconciler.NewReconciler(os.Args[1], workDir)
 	if err != nil {
 		util.Log.Error(err, "cannot open repository")
 		os.Exit(1)

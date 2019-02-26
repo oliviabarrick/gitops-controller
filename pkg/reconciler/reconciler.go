@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 	"gopkg.in/yaml.v2"
 	"github.com/jinzhu/inflection"
 	"github.com/justinbarrick/git-controller/pkg/repo"
@@ -16,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -144,6 +146,11 @@ func (c *Config) RuleForObject(obj runtime.Object) (*Rule, error) {
 	return nil, nil
 }
 
+type Source struct {
+	Kind runtime.Object
+	Chan chan event.GenericEvent
+}
+
 // Reconciler that synchronizes objects in Kubernetes to a git repository.
 type Reconciler struct {
 	config  *Config
@@ -152,6 +159,7 @@ type Reconciler struct {
 	mgr     manager.Manager
 	restMap meta.RESTMapper
 	repoDir string
+	sources []Source
 }
 
 // Create a new reconciler and checkout the repository.
@@ -184,6 +192,7 @@ func NewReconciler(repoDir string, manifestsPath string) (*Reconciler, error) {
 		mgr:    mgr,
 		restMap: restMap,
 		client: mgr.GetClient(),
+		sources: []Source{},
 	}
 
 	for _, kinds := range config.Kinds {
@@ -229,6 +238,10 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) reconcile.Func {
 			return reconcile.Result{}, err
 		}
 
+		if k8sNotFound && found == nil {
+			return reconcile.Result{}, nil
+		}
+
 		ruleFor := obj
 		if k8sNotFound {
 			ruleFor = found.Object
@@ -248,10 +261,16 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) reconcile.Func {
 
 		if rule.SyncTo == Git {
 			if k8sNotFound {
-				return reconcile.Result{}, r.repo.RemoveResource(obj, found)
+				err = r.repo.RemoveResource(obj, found)
+			} else {
+				err = r.repo.AddResource(obj, found)
 			}
 
-			return reconcile.Result{}, r.repo.AddResource(obj, found)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+
+			return reconcile.Result{}, r.repo.Push()
 		} else {
 			if k8sNotFound && found == nil {
 				return reconcile.Result{}, nil
@@ -273,6 +292,9 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) reconcile.Func {
 
 			util.Log.Info("restoring object to git state", "kind", strKind, "name",
 						  name, "namespace", namespace)
+			actualMeta := util.GetMeta(obj)
+			foundMeta := util.GetMeta(found.Object)
+			foundMeta.SetResourceVersion(actualMeta.GetResourceVersion())
 			return reconcile.Result{}, r.client.Update(context.TODO(), found.Object)
 		}
 
@@ -285,10 +307,25 @@ func (r *Reconciler) RegisterReconcilerForType(kind runtime.Object) error {
 	name := fmt.Sprintf("%s-controller", strKind)
 	util.Log.Info("starting controller", "kind", strKind)
 
+	reconciler := r.ReconcilerForType(kind)
+
 	ctrlr, err := controller.New(name, r.mgr, controller.Options{
-		Reconciler: r.ReconcilerForType(kind),
+		Reconciler: reconciler,
 	})
 	if err != nil {
+		return err
+	}
+
+	events := make(chan event.GenericEvent)
+	r.sources = append(r.sources, Source{
+		Kind: kind,
+		Chan: events,
+	})
+
+	if err := ctrlr.Watch(
+		&source.Channel{Source: events},
+		&handler.EnqueueRequestForObject{},
+	); err != nil {
 		return err
 	}
 
@@ -297,6 +334,43 @@ func (r *Reconciler) RegisterReconcilerForType(kind runtime.Object) error {
 	}, &handler.EnqueueRequestForObject{})
 }
 
+func (r *Reconciler) GitSync() error {
+	if err := r.repo.Pull(); err != nil {
+		return err
+	}
+
+	objects, err := r.repo.LoadRepoYAMLs()
+	if err != nil {
+		return err
+	}
+
+	for _, obj := range objects {
+		kind := util.GetType(obj.Object)
+		meta := util.GetMeta(obj.Object)
+
+		for _, source := range r.sources {
+			sourceKind := util.GetType(source.Kind)
+			if sourceKind.Kind != kind.Kind || sourceKind.Group != kind.Group {
+				continue
+			}
+
+			source.Chan <- event.GenericEvent{
+				Meta: meta,
+				Object: obj.Object,
+			}
+		}
+	}
+
+	return nil
+}
+
 func (r *Reconciler) Start() error {
+	ticker := time.NewTicker(30 * time.Second)
+	go func() {
+		for _ = range ticker.C {
+			util.Log.Info("resyncing")
+			r.GitSync()
+		}
+	}()
 	return r.mgr.Start(signals.SetupSignalHandler())
 }

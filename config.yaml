@@ -11,4 +11,4 @@ rules:
   resources: 
   - volumesnapshots
   - volumesnapshotcontents
-  syncTo: git
+  syncTo: kubernetes

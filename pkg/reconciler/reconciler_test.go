@@ -331,6 +331,13 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Delete does not crash",
+			kind: deployment,
+			testObj: types.NamespacedName{"hello", "test"},
+			rules: []Rule{},
+		},
+
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Initialize empty repo for test.
