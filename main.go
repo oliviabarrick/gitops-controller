@@ -14,15 +14,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := reconciler.Register(
-		util.Kind("VolumeSnapshot", "snapshot.storage.k8s.io", "v1alpha1"),
-		util.Kind("VolumeSnapshotContent", "snapshot.storage.k8s.io", "v1alpha1"),
-		util.Kind("Deployment", "extensions", "v1beta1"),
-	); err != nil {
-		util.Log.Error(err, "cannot initialize reconcilers")
-		os.Exit(1)
-	}
-
 	if err := reconciler.Start(); err != nil {
 		util.Log.Error(err, "cannot start manager")
 		os.Exit(1)

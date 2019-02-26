@@ -94,10 +94,22 @@ func (r *Rule) Matches(obj runtime.Object) (bool, error) {
 	return true, nil
 }
 
+// A resource kind to load in the controller..
+type Kind struct {
+	// The kind of the resource (e.g., Deployment).
+	Kind string `yaml:"kind"`
+	// The group of the resource (e.g., extensions).
+	Group string `yaml:"group"`
+	// The apiVersion of the resource (e.g., v1beta1).
+	APIVersion string `yaml:"apiVersion"`
+}
+
 // Configuration for the git-controller.
 type Config struct {
 	// Rules to load.
 	Rules []Rule `yaml:"rules"`
+	// Kinds for the controller to watch.
+	Kinds []Kind `yaml:"kinds"`
 }
 
 func NewConfig(path string) (*Config, error) {
@@ -166,13 +178,22 @@ func NewReconciler(repoDir string, manifestsPath string) (*Reconciler, error) {
 		return nil, err
 	}
 
-	return &Reconciler{
+	r := &Reconciler{
 		config: config,
 		repo:   repo,
 		mgr:    mgr,
 		restMap: restMap,
 		client: mgr.GetClient(),
-	}, nil
+	}
+
+	for _, kinds := range config.Kinds {
+		err = r.Register(util.Kind(kinds.Kind, kinds.Group, kinds.APIVersion))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return r, nil
 }
 
 // Register the reconciler for each prototype object provided.
