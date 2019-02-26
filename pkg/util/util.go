@@ -41,3 +41,13 @@ func Kind(kind, group, version string) runtime.Object {
 	})
 	return obj
 }
+
+// Return an instantiated object of type kind that has name and namespace initialized
+// to name.
+func DefaultObject(kind runtime.Object, name, namespace string) runtime.Object {
+	obj := kind.DeepCopyObject()
+	meta := GetMeta(obj)
+	meta.SetName(name)
+	meta.SetNamespace(namespace)
+	return obj
+}

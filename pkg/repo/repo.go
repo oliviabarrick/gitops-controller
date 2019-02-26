@@ -27,18 +27,29 @@ type Repo struct {
 	repoDir string
 }
 
-// Open a git repository.
+// Open a git repository, if repoDir is an empty string, it will initialize a
+// new a git repository. If repoDir is not empty, it will clone the repository into
+// memory.
 func NewRepo(repoDir, workDir string) (*Repo, error) {
 	fs := memfs.New()
 
 	util.Log.Info("cloning repo", "repo", repoDir)
 	startTime := time.Now()
-	repo, err := git.Clone(memory.NewStorage(), fs, &git.CloneOptions{
-		URL: repoDir,
-	})
+
+	var err error
+	var repo *git.Repository
+
+	if repoDir != "" {
+		repo, err = git.Clone(memory.NewStorage(), fs, &git.CloneOptions{
+			URL: repoDir,
+		})
+	} else {
+		repo, err = git.Init(memory.NewStorage(), fs)
+	}
 	if err != nil {
 		return nil, err
 	}
+
 	duration := time.Now().Sub(startTime).Seconds()
 	util.Log.Info("finished clone", "repo", repoDir, "duration", duration)
 
@@ -178,7 +189,7 @@ func (r *Repo) FindObjectInRepo(obj runtime.Object) (*yaml.Object, error) {
 
 // Add an object to a repository - if it exists in the repository already, update
 // it in place, if not, create a new file and write it to that file.
-func (r *Repo) AddResource(obj runtime.Object) error {
+func (r *Repo) AddResource(obj runtime.Object, found *yaml.Object) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
@@ -220,14 +231,9 @@ func (r *Repo) AddResource(obj runtime.Object) error {
 }
 
 // Remove an object from the repository if it exists.
-func (r *Repo) RemoveResource(obj runtime.Object) error {
+func (r *Repo) RemoveResource(obj runtime.Object, found *yaml.Object) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
-
-	found, err := r.FindObjectInRepo(obj)
-	if err != nil {
-		return err
-	}
 
 	if found == nil {
 		return nil
