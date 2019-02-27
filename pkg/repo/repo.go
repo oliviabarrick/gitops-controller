@@ -142,11 +142,6 @@ func (r *Repo) Walk(path string, cb func(string, os.FileInfo) error) error {
 func (r *Repo) LoadRepoYAMLs() ([]*yaml.Object, error) {
 	mappings := []*yaml.Object{}
 
-	err := r.Pull()
-	if err != nil {
-		return mappings, err
-	}
-
 	allowedExtensions := map[string]bool{
 		".yaml": true,
 		".yml":  true,
