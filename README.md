@@ -101,8 +101,12 @@ be created in your Kubernetes cluster.
 To deploy the gitops-controller, create an SSH secret:
 
 ```
-kubectl create secret generic git-ssh -n gitops-controller --from-file=identity=$HOME/.ssh/id_rsa >> deploy.yaml
+ssh-keygen -f gitops
+kubectl create secret generic git-ssh -n gitops-controller --from-file=identity=$(pwd)/gitops -o yaml --dry-run >> deploy.yaml
 ```
+
+Add the `gitops.pub` key to your repository's deploy keys with read and write
+access.
 
 Update the ConfigMap in deploy.yaml as required and then deploy it:
 
