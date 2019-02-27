@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"k8s.io/client-go/discovery"
 	"bytes"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	kyaml "k8s.io/apimachinery/pkg/util/yaml"
@@ -240,22 +241,10 @@ func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object) (bool, 
 	return true, nil
 }
 
-// A resource kind to load in the controller..
-type Kind struct {
-	// The kind of the resource (e.g., Deployment).
-	Kind string `yaml:"kind"`
-	// The group of the resource (e.g., extensions).
-	Group string `yaml:"group"`
-	// The apiVersion of the resource (e.g., v1beta1).
-	APIVersion string `yaml:"apiVersion"`
-}
-
 // Configuration for the git-controller.
 type Config struct {
 	// Rules to load.
 	Rules []Rule `yaml:"rules"`
-	// Kinds for the controller to watch.
-	Kinds []Kind `yaml:"kinds"`
 }
 
 func NewConfig(path string) (*Config, error) {
@@ -339,10 +328,35 @@ func NewReconciler(repoDir string, manifestsPath string) (*Reconciler, error) {
 		sources: []Source{},
 	}
 
-	for _, kinds := range config.Kinds {
-		err = r.Register(util.Kind(kinds.Kind, kinds.Group, kinds.APIVersion))
-		if err != nil {
-			return nil, err
+	dClient := discovery.NewDiscoveryClientForConfigOrDie(mgr.GetConfig())
+	resourceTypes, err := dClient.ServerPreferredResources()
+	for _, resourceType := range resourceTypes {
+		for _, resource := range resourceType.APIResources {
+			group := ""
+			version := ""
+
+			splitVersion := strings.Split(resourceType.GroupVersion, "/")
+			if len(splitVersion) == 1 {
+				version = splitVersion[0]
+			} else {
+				version = splitVersion[1]
+				group = splitVersion[0]
+			}
+
+			hasRequiredVerbs := true
+			for _, verb := range []string{"watch", "list", "get", "update", "delete"} {
+				if ! contains(resource.Verbs, verb) {
+					hasRequiredVerbs = false
+				}
+			}
+
+			if ! hasRequiredVerbs {
+				continue
+			}
+
+			if err := r.Register(util.Kind(resource.Kind, group, version)); err != nil {
+				return nil, err
+			}
 		}
 	}
 
