@@ -1,6 +1,7 @@
 package util
 
 import (
+	"github.com/appscode/jsonpatch"
 	"io"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -10,7 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
+	"path/filepath"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
+	"strings"
 )
 
 var (
@@ -20,7 +23,7 @@ var (
 )
 
 func init() {
-	logf.SetLogger(logf.ZapLogger(false))
+	logf.SetLogger(logf.ZapLogger(true))
 	corev1.AddToScheme(Scheme)
 }
 
@@ -67,4 +70,31 @@ func MarshalObject(o runtime.Object, w io.Writer) error {
 	meta.SetGeneration(0)
 
 	return encoder.Encode(o, w)
+}
+
+func PatchMatchesPath(patch jsonpatch.Operation, path string) (bool, error) {
+	if patch.Path == path {
+		return true, nil
+	}
+
+	rel, err := filepath.Rel(path, patch.Path)
+	if err != nil {
+		return false, err
+	}
+	if strings.HasPrefix(rel, "../") {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// Check if a list contains a given string.
+func Contains(list []string, key string) bool {
+	for _, item := range list {
+		if key == item {
+			return true
+		}
+	}
+
+	return len(list) == 0
 }

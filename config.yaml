@@ -1,3 +1,5 @@
+gitUrl: git@github.com:justinbarrick/manifests.git
+gitPath: manifests
 rules:
 - apiGroups:
   - snapshot.storage.k8s.io

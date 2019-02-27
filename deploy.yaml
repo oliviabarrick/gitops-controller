@@ -15,7 +15,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: backup-controller
+  name: git-controller
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -45,7 +45,7 @@ spec:
       serviceAccountName: git-controller
       containers:
       - image: justinbarrick/git-controller:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         name: git-controller
         resources:
           limits:
@@ -54,3 +54,41 @@ spec:
           requests:
             memory: "256Mi"
             cpu: "50m"
+        env:
+        - name: SSH_KEY_PATH
+          value: /ssh/identity
+        volumeMounts:
+        - name: git-ssh
+          readOnly: true
+          mountPath: /ssh/identity
+          subPath: identity
+        - name: git-config
+          readOnly: true
+          mountPath: /config.yaml
+          subPath: config.yaml
+      volumes:
+      - name: git-ssh
+        secret:
+          secretName: git-ssh
+          defaultMode: 0600
+      - name: git-config
+        configMap:
+          name: git-controller
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: git-controller
+  namespace: git-controller
+data:
+  config.yaml: |
+    gitUrl: git@github.com:justinbarrick/manifests.git
+    gitPath: manifests
+    rules:
+    - apiGroups:
+      - snapshot.storage.k8s.io
+      resources: 
+      - volumesnapshots
+      - volumesnapshotcontents
+      syncTo: git
+---

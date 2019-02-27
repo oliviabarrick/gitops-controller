@@ -1,30 +1,19 @@
 package reconciler
 
 import (
-	"bytes"
+	"github.com/davecgh/go-spew/spew"
 	"context"
-	"encoding/json"
 	"fmt"
-	"github.com/appscode/jsonpatch"
-	patchapply "github.com/evanphx/json-patch"
-	"github.com/jinzhu/inflection"
+	"github.com/justinbarrick/git-controller/pkg/config"
 	"github.com/justinbarrick/git-controller/pkg/repo"
 	"github.com/justinbarrick/git-controller/pkg/util"
 	ryaml "github.com/justinbarrick/git-controller/pkg/yaml"
-	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	kyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/discovery"
-	"os"
-	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	k8sconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -37,248 +26,6 @@ import (
 	"time"
 )
 
-type SyncType string
-
-const (
-	Kubernetes SyncType = "kubernetes"
-	Git        SyncType = "git"
-)
-
-func PatchMatchesPath(patch jsonpatch.Operation, path string) (bool, error) {
-	if patch.Path == path {
-		return true, nil
-	}
-
-	rel, err := filepath.Rel(path, patch.Path)
-	if err != nil {
-		return false, err
-	}
-	if strings.HasPrefix(rel, "../") {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func PatchObject(original, current runtime.Object, rule *Rule) (runtime.Object, error) {
-	patch := admission.PatchResponse(original, current)
-	patches := []jsonpatch.Operation{}
-
-	for _, patch := range patch.Patches {
-		matched := false
-
-		if len(rule.Filters) == 0 {
-			matched = true
-		}
-
-		for _, filter := range rule.Filters {
-			match, err := PatchMatchesPath(patch, filter)
-			if err != nil {
-				return nil, err
-			}
-
-			if !match {
-				continue
-			}
-
-			matched = true
-		}
-
-		if !matched {
-			continue
-		}
-
-		patches = append(patches, patch)
-	}
-
-	serialized, err := json.Marshal(original)
-	if err != nil {
-		return nil, err
-	}
-
-	serializedPatches, err := json.Marshal(patches)
-	if err != nil {
-		return nil, err
-	}
-
-	patchOps, err := patchapply.DecodePatch(serializedPatches)
-	if err != nil {
-		return nil, err
-	}
-
-	serialized, err = patchOps.Apply(serialized)
-	if err != nil {
-		return nil, err
-	}
-
-	final := &unstructured.Unstructured{}
-	if err := kyaml.NewYAMLOrJSONDecoder(bytes.NewBuffer(serialized), len(serialized)).Decode(final); err != nil {
-		return nil, err
-	}
-
-	k8sMeta := util.GetMeta(original)
-	finalMeta := util.GetMeta(final)
-	finalMeta.SetResourceVersion(k8sMeta.GetResourceVersion())
-	return final, nil
-}
-
-// Check if a list contains a given string.
-func contains(list []string, key string) bool {
-	for _, item := range list {
-		if key == item {
-			return true
-		}
-	}
-
-	return len(list) == 0
-}
-
-// A rule that decides whether or not a resource should be synced, and whether it
-// should be synced to Git or Kubernetes.
-type Rule struct {
-	// API groups to match the rule on. If empty, the rule matches all API groups.
-	APIGroups []string `yaml:"apiGroups"`
-	// Resource types to match the rule on. If empty, the rule matches any resources.
-	Resources []string `yaml:"resources"`
-	// Label selector to match the rule on. If empty, the rule matches any labels.
-	Labels string `yaml:"labels"`
-	// A list of JSON path expressions that changes will be restricted to (e.g., `/metadata/annotations` will ignore
-	// any changes that are not to annotations).
-	Filters []string `yaml:"filters"`
-	// Which direction to sync resources. If syncTo is set to kubernetes, sync from
-	// git to kubernetes. If syncTo is set to git, sync from kubernetes to git.
-	SyncTo SyncType `yaml:"syncTo"`
-}
-
-// Return the normalized version of the list of resources
-func (r *Rule) NormalizedResources() []string {
-	resources := []string{}
-
-	for _, resource := range r.Resources {
-		resources = append(resources, strings.ToLower(inflection.Singular(resource)))
-	}
-
-	return resources
-}
-
-// Check if an object is matched by a rule.
-//
-// Decision tree to determine if resource matches a rule:
-// 1. If resource kind is not included in the rule's resources and the rule has a resources argument, rule does not match.
-// 2. If resource group is not included in the rule's groups and the rule has a groups argument, rule does not match.
-// 3. If labels are not set in Git and SyncTo is Kubernetes, rule does not match.
-// 4. If labels are not set in Kubernetes and SyncTo is Git, rule does not match.
-// 5. Rule matches.
-func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object) (bool, error) {
-	var obj runtime.Object
-	if k8sState != nil {
-		obj = k8sState
-	} else {
-		obj = gitState
-	}
-
-	kind := util.GetType(obj)
-
-	if !contains(r.NormalizedResources(), strings.ToLower(kind.Kind)) {
-		return false, nil
-	}
-
-	if !contains(r.APIGroups, kind.Group) {
-		return false, nil
-	}
-
-	original := gitState
-	current := k8sState
-	if r.SyncTo == Kubernetes {
-		original = gitState
-		current = k8sState
-	}
-
-	if original != nil && current != nil {
-		patch := admission.PatchResponse(original, current)
-		matches := len(r.Filters) == 0
-		for _, filter := range r.Filters {
-			for _, patch := range patch.Patches {
-				match, err := PatchMatchesPath(patch, filter)
-				if err != nil {
-					return false, err
-				}
-				if match {
-					matches = match
-					break
-				}
-			}
-		}
-
-		if !matches {
-			return false, nil
-		}
-	}
-
-	if r.Labels != "" {
-		labelSelector, err := labels.Parse(r.Labels)
-		if err != nil {
-			return false, err
-		}
-
-		if r.SyncTo == Kubernetes {
-			obj = gitState
-		} else if r.SyncTo == Git {
-			obj = k8sState
-		}
-
-		if obj == nil {
-			return false, nil
-		}
-
-		objLabels := util.GetMeta(obj).GetLabels()
-
-		if !labelSelector.Matches(labels.Set(objLabels)) {
-			return false, nil
-		}
-	}
-
-	return true, nil
-}
-
-// Configuration for the git-controller.
-type Config struct {
-	// Rules to load.
-	Rules []Rule `yaml:"rules"`
-}
-
-func NewConfig(path string) (*Config, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-
-	defer file.Close()
-
-	config := &Config{}
-
-	if err := yaml.NewDecoder(file).Decode(config); err != nil {
-		return nil, err
-	}
-
-	return config, nil
-}
-
-func (c *Config) RuleForObject(k8sState runtime.Object, gitState runtime.Object) (*Rule, error) {
-	for _, rule := range c.Rules {
-		match, err := rule.Matches(k8sState, gitState)
-		if err != nil {
-			return nil, err
-		}
-
-		if match {
-			return &rule, nil
-		}
-	}
-
-	return nil, nil
-}
-
 type Source struct {
 	Kind runtime.Object
 	Chan chan event.GenericEvent
@@ -286,35 +33,23 @@ type Source struct {
 
 // Reconciler that synchronizes objects in Kubernetes to a git repository.
 type Reconciler struct {
-	config  *Config
+	config  *config.Config
 	client  client.Client
 	repo    *repo.Repo
 	mgr     manager.Manager
-	restMap meta.RESTMapper
-	repoDir string
 	sources []Source
 }
 
 // Create a new reconciler and checkout the repository.
-func NewReconciler(repoDir string, manifestsPath string) (*Reconciler, error) {
-	mgr, err := manager.New(config.GetConfigOrDie(), manager.Options{
+func NewReconciler(config *config.Config) (*Reconciler, error) {
+	mgr, err := manager.New(k8sconfig.GetConfigOrDie(), manager.Options{
 		Scheme: util.Scheme,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	repo, err := repo.NewRepo(repoDir, manifestsPath)
-	if err != nil {
-		return nil, err
-	}
-
-	restMap, err := apiutil.NewDiscoveryRESTMapper(mgr.GetConfig())
-	if err != nil {
-		return nil, err
-	}
-
-	config, err := NewConfig("config.yaml")
+	repo, err := repo.NewRepo(config.GitURL, config.GitPath)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +58,6 @@ func NewReconciler(repoDir string, manifestsPath string) (*Reconciler, error) {
 		config:  config,
 		repo:    repo,
 		mgr:     mgr,
-		restMap: restMap,
 		client:  mgr.GetClient(),
 		sources: []Source{},
 	}
@@ -345,13 +79,17 @@ func NewReconciler(repoDir string, manifestsPath string) (*Reconciler, error) {
 
 			hasRequiredVerbs := true
 			for _, verb := range []string{"watch", "list", "get", "update", "delete"} {
-				if !contains(resource.Verbs, verb) {
+				if !util.Contains(resource.Verbs, verb) {
 					hasRequiredVerbs = false
 				}
 			}
 
-			if !hasRequiredVerbs {
+			if !hasRequiredVerbs || len(resource.Verbs) == 0 {
 				continue
+			}
+
+			if resource.Kind == "ReplicationControllerDummy" {
+				spew.Dump(resource)
 			}
 
 			if err := r.Register(util.Kind(resource.Kind, group, version)); err != nil {
@@ -446,7 +184,7 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) reconcile.Func {
 		util.Log.Info("syncing", "kind", strKind, "name", name,
 			"namespace", namespace, "syncTo", rule.SyncTo)
 
-		if rule.SyncTo == Git {
+		if rule.SyncTo == config.Git {
 			err = r.SyncObjectToGit(k8sState, gitState, rule)
 		} else {
 			err = r.SyncObjectToKubernetes(k8sState, gitState, rule)
@@ -456,14 +194,14 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) reconcile.Func {
 	})
 }
 
-func (r *Reconciler) SyncObjectToGit(k8sState runtime.Object, gitState *ryaml.Object, rule *Rule) error {
+func (r *Reconciler) SyncObjectToGit(k8sState runtime.Object, gitState *ryaml.Object, rule *config.Rule) error {
 	var err error
 
 	if k8sState == nil {
 		err = r.repo.RemoveResource(k8sState, gitState)
 	} else {
 		if gitState != nil {
-			k8sState, err = PatchObject(gitState.Object, k8sState, rule)
+			k8sState, err = config.PatchObject(gitState.Object, k8sState, rule)
 			if err != nil {
 				return err
 			}
@@ -479,7 +217,7 @@ func (r *Reconciler) SyncObjectToGit(k8sState runtime.Object, gitState *ryaml.Ob
 	return r.repo.Push()
 }
 
-func (r *Reconciler) SyncObjectToKubernetes(k8sState runtime.Object, gitState *ryaml.Object, rule *Rule) error {
+func (r *Reconciler) SyncObjectToKubernetes(k8sState runtime.Object, gitState *ryaml.Object, rule *config.Rule) error {
 	if k8sState == nil && gitState == nil {
 		return nil
 	}
@@ -512,7 +250,7 @@ func (r *Reconciler) SyncObjectToKubernetes(k8sState runtime.Object, gitState *r
 	util.Log.Info("restoring object to git state", "kind", kind, "name",
 		logMeta.GetName(), "namespace", logMeta.GetNamespace())
 
-	patched, err := PatchObject(k8sState, gitState.Object, rule)
+	patched, err := config.PatchObject(k8sState, gitState.Object, rule)
 	if err != nil {
 		return err
 	}
@@ -521,9 +259,10 @@ func (r *Reconciler) SyncObjectToKubernetes(k8sState runtime.Object, gitState *r
 }
 
 func (r *Reconciler) RegisterReconcilerForType(kind runtime.Object) error {
-	strKind := kind.GetObjectKind().GroupVersionKind().Kind
-	name := fmt.Sprintf("%s-controller", strKind)
-	util.Log.Info("starting controller", "kind", strKind)
+	gvk := kind.GetObjectKind().GroupVersionKind()
+	strKind := gvk.Kind
+	name := fmt.Sprintf("git:%s/%s:%s", gvk.Group, gvk.Version, strKind)
+	util.Log.Info("starting controller", "kind", strKind, "name", name)
 
 	reconciler := r.ReconcilerForType(kind)
 

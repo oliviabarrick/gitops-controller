@@ -95,3 +95,22 @@ go build
 
 Any `VolumeSnapshots` and `VolumeSnapshotContent` resources in the repository will
 be created in your Kubernetes cluster.
+
+# Deployment
+
+To deploy the git-controller, create an SSH secret:
+
+```
+kubectl create secret generic git-ssh -n git-controller --from-file=identity=$HOME/.ssh/id_rsa >> deploy.yaml
+```
+
+Update the ConfigMap in deploy.yaml as required and then deploy it:
+
+```
+kubectl apply -f deploy.yaml
+```
+
+## Custom SSH known hosts
+
+The image comes preloaded with known hosts for gitlab and github, however, you can add a new known_hosts file by mounting
+a ConfigMap to `/ssh/known_hosts`.

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"github.com/justinbarrick/git-controller/pkg/config"
 	"github.com/justinbarrick/git-controller/pkg/reconciler"
 	"github.com/justinbarrick/git-controller/pkg/util"
 	"log"
@@ -9,16 +9,12 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal(fmt.Sprintf("Usage: %s <git URL> [working directory]", os.Args[0]))
+	config, err := config.NewConfig("config.yaml")
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	workDir := "."
-	if len(os.Args) > 2 {
-		workDir = os.Args[2]
-	}
-
-	reconciler, err := reconciler.NewReconciler(os.Args[1], workDir)
+	reconciler, err := reconciler.NewReconciler(config)
 	if err != nil {
 		util.Log.Error(err, "cannot open repository")
 		os.Exit(1)
