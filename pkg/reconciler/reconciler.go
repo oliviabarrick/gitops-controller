@@ -1,32 +1,30 @@
 package reconciler
 
 import (
-	"k8s.io/client-go/discovery"
 	"bytes"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	kyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"context"
+	"encoding/json"
+	"fmt"
 	"github.com/appscode/jsonpatch"
 	patchapply "github.com/evanphx/json-patch"
-	"encoding/json"
-	"path/filepath"
-	"context"
-	"fmt"
-	"os"
-	"strings"
-	"time"
-	"gopkg.in/yaml.v2"
 	"github.com/jinzhu/inflection"
 	"github.com/justinbarrick/git-controller/pkg/repo"
 	"github.com/justinbarrick/git-controller/pkg/util"
 	ryaml "github.com/justinbarrick/git-controller/pkg/yaml"
+	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	kyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/discovery"
+	"os"
+	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -34,14 +32,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	"strings"
+	"time"
 )
 
 type SyncType string
 
 const (
 	Kubernetes SyncType = "kubernetes"
-	Git SyncType = "git"
+	Git        SyncType = "git"
 )
 
 func PatchMatchesPath(patch jsonpatch.Operation, path string) (bool, error) {
@@ -77,14 +77,14 @@ func PatchObject(original, current runtime.Object, rule *Rule) (runtime.Object, 
 				return nil, err
 			}
 
-			if ! match {
+			if !match {
 				continue
 			}
 
 			matched = true
 		}
 
-		if ! matched {
+		if !matched {
 			continue
 		}
 
@@ -179,11 +179,11 @@ func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object) (bool, 
 
 	kind := util.GetType(obj)
 
-	if ! contains(r.NormalizedResources(), strings.ToLower(kind.Kind)) {
+	if !contains(r.NormalizedResources(), strings.ToLower(kind.Kind)) {
 		return false, nil
 	}
 
-	if ! contains(r.APIGroups, kind.Group) {
+	if !contains(r.APIGroups, kind.Group) {
 		return false, nil
 	}
 
@@ -210,7 +210,7 @@ func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object) (bool, 
 			}
 		}
 
-		if ! matches {
+		if !matches {
 			return false, nil
 		}
 	}
@@ -233,7 +233,7 @@ func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object) (bool, 
 
 		objLabels := util.GetMeta(obj).GetLabels()
 
-		if ! labelSelector.Matches(labels.Set(objLabels)) {
+		if !labelSelector.Matches(labels.Set(objLabels)) {
 			return false, nil
 		}
 	}
@@ -320,11 +320,11 @@ func NewReconciler(repoDir string, manifestsPath string) (*Reconciler, error) {
 	}
 
 	r := &Reconciler{
-		config: config,
-		repo:   repo,
-		mgr:    mgr,
+		config:  config,
+		repo:    repo,
+		mgr:     mgr,
 		restMap: restMap,
-		client: mgr.GetClient(),
+		client:  mgr.GetClient(),
 		sources: []Source{},
 	}
 
@@ -345,12 +345,12 @@ func NewReconciler(repoDir string, manifestsPath string) (*Reconciler, error) {
 
 			hasRequiredVerbs := true
 			for _, verb := range []string{"watch", "list", "get", "update", "delete"} {
-				if ! contains(resource.Verbs, verb) {
+				if !contains(resource.Verbs, verb) {
 					hasRequiredVerbs = false
 				}
 			}
 
-			if ! hasRequiredVerbs {
+			if !hasRequiredVerbs {
 				continue
 			}
 
@@ -444,7 +444,7 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) reconcile.Func {
 
 		// Synchronize to Git or Kubernetes, depending on the SyncTo type of the rule.
 		util.Log.Info("syncing", "kind", strKind, "name", name,
-		              "namespace", namespace, "syncTo", rule.SyncTo)
+			"namespace", namespace, "syncTo", rule.SyncTo)
 
 		if rule.SyncTo == Git {
 			err = r.SyncObjectToGit(k8sState, gitState, rule)
@@ -496,21 +496,21 @@ func (r *Reconciler) SyncObjectToKubernetes(k8sState runtime.Object, gitState *r
 
 	if gitState == nil {
 		util.Log.Info("deleting object not in git", "kind", kind, "name",
-					  logMeta.GetName(), "namespace", logMeta.GetNamespace())
-		if err := r.client.Delete(context.TODO(), k8sState); err != nil && ! errors.IsNotFound(err) {
+			logMeta.GetName(), "namespace", logMeta.GetNamespace())
+		if err := r.client.Delete(context.TODO(), k8sState); err != nil && !errors.IsNotFound(err) {
 			return err
 		}
-	  return nil
+		return nil
 	}
 
 	if k8sState == nil {
 		util.Log.Info("recreating object from git", "kind", kind, "name",
-					  logMeta.GetName(), "namespace", logMeta.GetNamespace())
+			logMeta.GetName(), "namespace", logMeta.GetNamespace())
 		return r.client.Create(context.TODO(), gitState.Object)
 	}
 
 	util.Log.Info("restoring object to git state", "kind", kind, "name",
-					  logMeta.GetName(), "namespace", logMeta.GetNamespace())
+		logMeta.GetName(), "namespace", logMeta.GetNamespace())
 
 	patched, err := PatchObject(k8sState, gitState.Object, rule)
 	if err != nil {
@@ -573,7 +573,7 @@ func (r *Reconciler) GitSync() error {
 			}
 
 			source.Chan <- event.GenericEvent{
-				Meta: meta,
+				Meta:   meta,
 				Object: obj.Object,
 			}
 		}

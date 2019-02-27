@@ -1,8 +1,8 @@
 package yaml
 
 import (
-	"io"
 	"github.com/justinbarrick/git-controller/pkg/util"
+	"io"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 

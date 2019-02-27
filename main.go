@@ -1,13 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"github.com/justinbarrick/git-controller/pkg/reconciler"
 	"github.com/justinbarrick/git-controller/pkg/util"
-	"fmt"
 	"log"
 	"os"
 )
-
 
 func main() {
 	if len(os.Args) < 2 {

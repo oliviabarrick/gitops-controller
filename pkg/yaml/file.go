@@ -1,13 +1,13 @@
 package yaml
 
 import (
-	"bytes"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"bufio"
+	"bytes"
 	"github.com/justinbarrick/git-controller/pkg/util"
-	"io"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"gopkg.in/src-d/go-billy.v4"
+	"io"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"os"
 	"path/filepath"
 )
@@ -51,7 +51,7 @@ func (y *File) RemoveResource(obj *Object) {
 			kind := util.GetType(obj.Object)
 
 			util.Log.Info("pruning resource", "name", meta.GetName(), "namespace",
-			              meta.GetNamespace(), "kind", kind.Kind)
+				meta.GetNamespace(), "kind", kind.Kind)
 			continue
 		}
 
@@ -130,7 +130,7 @@ func (y *File) Dump() error {
 		kind := util.GetType(obj.Object)
 
 		util.Log.Info("saving object", "name", meta.GetName(), "path", y.Path,
-		              "kind", kind.Kind, "namespace", meta.GetNamespace())
+			"kind", kind.Kind, "namespace", meta.GetNamespace())
 		if err := obj.Marshal(outFile); err != nil {
 			return err
 		}

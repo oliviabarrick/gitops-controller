@@ -6,10 +6,10 @@ import (
 	"github.com/justinbarrick/git-controller/pkg/yaml"
 	"gopkg.in/src-d/go-git.v4"
 
+	"gopkg.in/src-d/go-billy.v4"
+	"gopkg.in/src-d/go-billy.v4/memfs"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
 	"gopkg.in/src-d/go-git.v4/storage/memory"
-	"gopkg.in/src-d/go-billy.v4/memfs"
-	"gopkg.in/src-d/go-billy.v4"
 	"k8s.io/apimachinery/pkg/runtime"
 	"os"
 	"path/filepath"
@@ -149,12 +149,12 @@ func (r *Repo) LoadRepoYAMLs() ([]*yaml.Object, error) {
 
 	allowedExtensions := map[string]bool{
 		".yaml": true,
-		".yml": true,
+		".yml":  true,
 		".json": true,
 	}
 
 	return mappings, r.Walk(r.workDir, func(path string, info os.FileInfo) error {
-		if ! allowedExtensions[filepath.Ext(path)] {
+		if !allowedExtensions[filepath.Ext(path)] {
 			return nil
 		}
 
