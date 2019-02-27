@@ -72,6 +72,8 @@ Configuration format:
                matches any resources.
 * `labels`: a string label selector to match the rule on. If empty, the rule matches
             any labels.
+* `filters`: a list of JSON path strings indicating which changes to include. For example, if filters is
+             `["/metadata/annotations"]` then only changes to annotations will be matched.
 * `syncTo`: the direction to synchronize matching resources - `kubernetes` to sync
             resources from Git to Kubernetes, `git` to sync resources from Kubernetes
             to Git.

@@ -161,6 +161,65 @@ func TestRules(t *testing.T) {
 				SyncTo: Kubernetes,
 			},
 		},
+		{
+			name: "filter rules match change details",
+			gitObj: annotated(util.DefaultObject(deployment, "test", "hello")),
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			matches: true,
+			rule: Rule{
+				Filters: []string{
+					"/metadata/annotations",
+				},
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "filter rules mis-match change details",
+			gitObj: labeled(util.DefaultObject(deployment, "test", "hello")),
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			matches: false,
+			rule: Rule{
+				Filters: []string{
+					"/metadata/annotations",
+				},
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "filter rules match changes underneath filter",
+			gitObj: labeled(util.DefaultObject(deployment, "test", "hello")),
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			matches: true,
+			rule: Rule{
+				Filters: []string{
+					"/metadata",
+				},
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "filter rules mis-match changes not underneath filter",
+			gitObj: labeled(util.DefaultObject(deployment, "test", "hello")),
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			matches: false,
+			rule: Rule{
+				Filters: []string{
+					"/spec",
+				},
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "filter always matches if the object needs to be created or deleted",
+			gitObj: labeled(util.DefaultObject(deployment, "test", "hello")),
+			matches: true,
+			rule: Rule{
+				Filters: []string{
+					"/spec",
+				},
+				SyncTo: Kubernetes,
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			matches, err := test.rule.Matches(test.k8sObj, test.gitObj)
@@ -327,6 +386,36 @@ func TestReconciler(t *testing.T) {
 			kind: deployment,
 			testObj: types.NamespacedName{"hello", "test"},
 			rules: []Rule{},
+		},
+		{
+			name: "Rule with filters respects filters when patching",
+			kind: deployment,
+			testObj: types.NamespacedName{"hello", "test"},
+			initK8s: annotated(util.DefaultObject(deployment, "test", "hello")),
+			initGit: labeled(util.DefaultObject(deployment, "test", "hello")),
+			expectedK8s: annotated(labeled(util.DefaultObject(deployment, "test", "hello"))),
+			expectedGit: labeled(util.DefaultObject(deployment, "test", "hello")),
+			rules: []Rule{
+				Rule{
+					Filters: []string{"/metadata/labels"},
+					SyncTo: Kubernetes,
+				},
+			},
+		},
+		{
+			name: "Git rule with filters respects filters when patching",
+			kind: deployment,
+			testObj: types.NamespacedName{"hello", "test"},
+			initK8s: labeled(util.DefaultObject(deployment, "test", "hello")),
+			initGit: annotated(util.DefaultObject(deployment, "test", "hello")),
+			expectedK8s: labeled(util.DefaultObject(deployment, "test", "hello")),
+			expectedGit: annotated(labeled(util.DefaultObject(deployment, "test", "hello"))),
+			rules: []Rule{
+				Rule{
+					Filters: []string{"/metadata/labels"},
+					SyncTo: Git,
+				},
+			},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
