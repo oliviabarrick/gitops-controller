@@ -254,8 +254,8 @@ func (r *Repo) RemoveResource(obj runtime.Object, found *yaml.Object) error {
 		return err
 	}
 
-	meta := util.GetMeta(obj)
-	kind := util.GetType(obj)
+	meta := util.GetMeta(found.Object)
+	kind := util.GetType(found.Object)
 
 	return r.Commit(fmt.Sprintf("Removing resource %s/%s/%s", kind.Kind, meta.GetNamespace(), meta.GetName()))
 }

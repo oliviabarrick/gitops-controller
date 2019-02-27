@@ -1,6 +1,7 @@
 package yaml
 
 import (
+	"io"
 	"github.com/justinbarrick/git-controller/pkg/util"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -64,4 +65,8 @@ func (o *Object) Delete() error {
 // Save the object to disk.
 func (o *Object) Save() error {
 	return o.File.Dump()
+}
+
+func (o *Object) Marshal(w io.Writer) error {
+	return util.MarshalObject(o.Object, w)
 }

@@ -6,9 +6,6 @@ import (
 	"bufio"
 	"github.com/justinbarrick/git-controller/pkg/util"
 	"io"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/serializer/json"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"gopkg.in/src-d/go-billy.v4"
 	"os"
@@ -102,8 +99,6 @@ func (y *File) Load() ([]*Object, error) {
 // Serialize all objects to a file, or remove the file if there are no objects
 // left.
 func (y *File) Dump() error {
-	encoder := json.NewYAMLSerializer(json.DefaultMetaFactory, nil, nil)
-
 	if len(y.Objects) == 0 {
 		if _, err := y.fs.Stat(y.Path); os.IsNotExist(err) {
 			return nil
@@ -136,15 +131,7 @@ func (y *File) Dump() error {
 
 		util.Log.Info("saving object", "name", meta.GetName(), "path", y.Path,
 		              "kind", kind.Kind, "namespace", meta.GetNamespace())
-
-		meta.SetResourceVersion("")
-		meta.SetCreationTimestamp(metav1.Time{})
-		meta.SetSelfLink("")
-		meta.SetUID(types.UID(""))
-		meta.SetGeneration(0)
-
-		err = encoder.Encode(obj.Object, outFile)
-		if err != nil {
+		if err := obj.Marshal(outFile); err != nil {
 			return err
 		}
 	}

@@ -10,10 +10,12 @@ import (
 	"github.com/jinzhu/inflection"
 	"github.com/justinbarrick/git-controller/pkg/repo"
 	"github.com/justinbarrick/git-controller/pkg/util"
+	ryaml "github.com/justinbarrick/git-controller/pkg/yaml"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -70,15 +72,28 @@ func (r *Rule) NormalizedResources() []string {
 }
 
 // Check if an object is matched by a rule.
-func (r *Rule) Matches(obj runtime.Object) (bool, error) {
-	kind := util.GetType(obj)
-	meta := util.GetMeta(obj)
+//
+// Decision tree to determine if resource matches a rule:
+// 1. If resource kind is not included in the rule's resources and the rule has a resources argument, rule does not match.
+// 2. If resource group is not included in the rule's groups and the rule has a groups argument, rule does not match.
+// 3. If labels are not set in Git and SyncTo is Kubernetes, rule does not match.
+// 4. If labels are not set in Kubernetes and SyncTo is Git, rule does not match.
+// 5. Rule matches.
+func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object) (bool, error) {
+	var obj runtime.Object
+	if k8sState != nil {
+		obj = k8sState
+	} else {
+		obj = gitState
+	}
 
-	if ! contains(r.APIGroups, kind.Group) {
+	kind := util.GetType(obj)
+
+	if ! contains(r.NormalizedResources(), strings.ToLower(kind.Kind)) {
 		return false, nil
 	}
 
-	if ! contains(r.NormalizedResources(), strings.ToLower(kind.Kind)) {
+	if ! contains(r.APIGroups, kind.Group) {
 		return false, nil
 	}
 
@@ -88,7 +103,19 @@ func (r *Rule) Matches(obj runtime.Object) (bool, error) {
 			return false, err
 		}
 
-		if ! labelSelector.Matches(labels.Set(meta.GetLabels())) {
+		if r.SyncTo == Kubernetes {
+			obj = gitState
+		} else if r.SyncTo == Git {
+			obj = k8sState
+		}
+
+		if obj == nil {
+			return false, nil
+		}
+
+		objLabels := util.GetMeta(obj).GetLabels()
+
+		if ! labelSelector.Matches(labels.Set(objLabels)) {
 			return false, nil
 		}
 	}
@@ -131,9 +158,9 @@ func NewConfig(path string) (*Config, error) {
 	return config, nil
 }
 
-func (c *Config) RuleForObject(obj runtime.Object) (*Rule, error) {
+func (c *Config) RuleForObject(k8sState runtime.Object, gitState runtime.Object) (*Rule, error) {
 	for _, rule := range c.Rules {
-		match, err := rule.Matches(obj)
+		match, err := rule.Matches(k8sState, gitState)
 		if err != nil {
 			return nil, err
 		}
@@ -224,82 +251,126 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) reconcile.Func {
 		name := request.NamespacedName.Name
 		namespace := request.NamespacedName.Namespace
 
-		obj := util.DefaultObject(kind, name, namespace)
+		k8sState := util.DefaultObject(kind, name, namespace)
 
-		err := r.client.Get(context.TODO(), request.NamespacedName, obj)
+		// Required operations:
+		// 1. Check Kubernetes
+		// 2. Check Git
+		// 3. If the resource does not exist in either place, return.
+		// 4. If the resource does not exist in Git and SyncTo is Kubernetes, delete from Kubernetes.
+		// 5. If the resource does not exist in Git and SyncTo is Git, add to Git.
+		// 6. If the resource does not exist in Kubernetes and SyncTo is Git, delete from Git.
+		// 7. If the resource does not exist in Kubernetes and SyncTo is Kubernetes, add to Kubernetes.
+		// 8. If the resources are out of sync and SyncTo is Git, update Git.
+		// 9. If the resources are out of sync and SyncTo is Kubernetes, update Kubernetes.
+
+		// Fetch resource from Kubernetes
+		err := r.client.Get(context.TODO(), request.NamespacedName, k8sState)
 		if err != nil && !errors.IsNotFound(err) {
 			return reconcile.Result{}, err
 		}
 
 		k8sNotFound := errors.IsNotFound(err)
 
-		found, err := r.repo.FindObjectInRepo(obj)
+		// Fetch resource from Git.
+		gitState, err := r.repo.FindObjectInRepo(k8sState)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
 
-		if k8sNotFound && found == nil {
+		if k8sNotFound {
+			k8sState = nil
+		}
+
+		// If the resource does not exist in either place, return.
+		if k8sState == nil && gitState == nil {
 			return reconcile.Result{}, nil
 		}
 
-		ruleFor := obj
-		if k8sNotFound {
-			ruleFor = found.Object
+		var gitStateObj runtime.Object
+		if gitState != nil {
+			gitStateObj = gitState.Object
 		}
 
-		rule, err := r.config.RuleForObject(ruleFor)
+		// Get a rule that matches the object.
+		rule, err := r.config.RuleForObject(k8sState, gitStateObj)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
 
+		// If no rules match, return.
 		if rule == nil {
 			return reconcile.Result{}, nil
 		}
 
+		// Synchronize to Git or Kubernetes, depending on the SyncTo type of the rule.
 		util.Log.Info("syncing", "kind", strKind, "name", name,
 		              "namespace", namespace, "syncTo", rule.SyncTo)
 
 		if rule.SyncTo == Git {
-			if k8sNotFound {
-				err = r.repo.RemoveResource(obj, found)
-			} else {
-				err = r.repo.AddResource(obj, found)
-			}
-
-			if err != nil {
-				return reconcile.Result{}, err
-			}
-
-			return reconcile.Result{}, r.repo.Push()
+			err = r.SyncObjectToGit(k8sState, gitState)
 		} else {
-			if k8sNotFound && found == nil {
-				return reconcile.Result{}, nil
-			} else if k8sNotFound {
-				util.Log.Info("recreating object from git", "kind", strKind, "name",
-				              name, "namespace", namespace)
-				return reconcile.Result{}, r.client.Create(context.TODO(), found.Object)
-			}
-
-			if found == nil {
-				util.Log.Info("deleting object not in git", "kind", strKind, "name",
-							  name, "namespace", namespace)
-				err = r.client.Delete(context.TODO(), obj)
-				if err != nil && ! errors.IsNotFound(err) {
-					return reconcile.Result{}, err
-				}
-				return reconcile.Result{}, nil
-			}
-
-			util.Log.Info("restoring object to git state", "kind", strKind, "name",
-						  name, "namespace", namespace)
-			actualMeta := util.GetMeta(obj)
-			foundMeta := util.GetMeta(found.Object)
-			foundMeta.SetResourceVersion(actualMeta.GetResourceVersion())
-			return reconcile.Result{}, r.client.Update(context.TODO(), found.Object)
+			err = r.SyncObjectToKubernetes(k8sState, gitState)
 		}
 
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, err
 	})
+}
+
+func (r *Reconciler) SyncObjectToGit(k8sState runtime.Object, gitState *ryaml.Object) error {
+	var err error
+
+	if k8sState == nil {
+		err = r.repo.RemoveResource(k8sState, gitState)
+	} else {
+		err = r.repo.AddResource(k8sState, gitState)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return r.repo.Push()
+}
+
+func (r *Reconciler) SyncObjectToKubernetes(k8sState runtime.Object, gitState *ryaml.Object) error {
+	if k8sState == nil && gitState == nil {
+		return nil
+	}
+
+	var logMeta metav1.Object
+	var kind string
+	if k8sState != nil {
+		logMeta = util.GetMeta(k8sState)
+		kind = util.GetType(k8sState).Kind
+	} else {
+		logMeta = util.GetMeta(gitState.Object)
+		kind = util.GetType(gitState.Object).Kind
+	}
+
+	if gitState == nil {
+		util.Log.Info("deleting object not in git", "kind", kind, "name",
+					  logMeta.GetName(), "namespace", logMeta.GetNamespace())
+		if err := r.client.Delete(context.TODO(), k8sState); err != nil && ! errors.IsNotFound(err) {
+			return err
+		}
+	  return nil
+	}
+
+	if k8sState == nil {
+		util.Log.Info("recreating object from git", "kind", kind, "name",
+					  logMeta.GetName(), "namespace", logMeta.GetNamespace())
+		return r.client.Create(context.TODO(), gitState.Object)
+	}
+
+	k8sMeta := util.GetMeta(k8sState)
+	gitMeta := util.GetMeta(gitState.Object)
+	gitMeta.SetResourceVersion(k8sMeta.GetResourceVersion())
+
+	util.Log.Info("restoring object to git state", "kind", kind, "name",
+					  logMeta.GetName(), "namespace", logMeta.GetNamespace())
+
+	return r.client.Update(context.TODO(), gitState.Object)
 }
 
 func (r *Reconciler) RegisterReconcilerForType(kind runtime.Object) error {

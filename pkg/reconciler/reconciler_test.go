@@ -30,7 +30,7 @@ func labeled(obj runtime.Object) runtime.Object {
 	return obj
 }
 
-func TestRule(t *testing.T) {
+func TestRuleLoadYAML(t *testing.T) {
 	config := `
 rules:
 - apiGroups:
@@ -56,127 +56,118 @@ rules:
 	assert.Equal(t, Kubernetes, rule.SyncTo)
 }
 
-func TestRuleMatch(t *testing.T) {
-	snap := util.Kind("Deployment", "extensions", "v1beta1")
-	meta := util.GetMeta(snap)
-	meta.SetName("my-snapshot")
-	meta.SetNamespace("my-namespace")
+func TestRules(t *testing.T) {
+	deployment := util.Kind("Deployment", "extensions", "v1beta1")
 
-	rule := &Rule{
-		APIGroups: []string{"extensions"},
-		Resources: []string{"deployments"},
+	for _, test := range []struct {
+		name string
+		matches bool
+		k8sObj runtime.Object
+		gitObj runtime.Object
+		rule Rule
+	} {
+		{
+			name: "api group matching",
+			matches: true,
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			rule: Rule{
+				APIGroups: []string{"extensions"},
+				Resources: []string{"deployments"},
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "api group mis-match",
+			matches: false,
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			rule: Rule{
+				APIGroups: []string{"apps"},
+				Resources: []string{"deployments"},
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "resources match",
+			matches: true,
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			rule: Rule{
+				Resources: []string{"deployments"},
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "resources mis-match",
+			matches: false,
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			rule: Rule{
+				APIGroups: []string{"blah"},
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "empty resource, matches any resource",
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			matches: true,
+			rule: Rule{
+				APIGroups: []string{"extensions"},
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "labels match",
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			gitObj: labeled(util.DefaultObject(deployment, "test", "hello")),
+			matches: true,
+			rule: Rule{
+				Labels: "a=label",
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "labels do not match",
+			k8sObj: labeled(util.DefaultObject(deployment, "test", "hello")),
+			gitObj: util.DefaultObject(deployment, "test", "hello"),
+			matches: false,
+			rule: Rule{
+				Labels: "a=label",
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "labels not set",
+			k8sObj: util.DefaultObject(deployment, "test", "hello"),
+			gitObj: util.DefaultObject(deployment, "test", "hello"),
+			matches: false,
+			rule: Rule{
+				Labels: "a=label",
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "resource not in git",
+			k8sObj: labeled(util.DefaultObject(deployment, "test", "hello")),
+			matches: false,
+			rule: Rule{
+				Labels: "a=label",
+				SyncTo: Kubernetes,
+			},
+		},
+		{
+			name: "missing from kubernetes matches git labels",
+			gitObj: labeled(util.DefaultObject(deployment, "test", "hello")),
+			matches: true,
+			rule: Rule{
+				Labels: "a=label",
+				SyncTo: Kubernetes,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			matches, err := test.rule.Matches(test.k8sObj, test.gitObj)
+			assert.Nil(t, err)
+			assert.Equal(t, test.matches, matches)
+		})
 	}
-
-	matches, err := rule.Matches(snap)
-	assert.Nil(t, err)
-	assert.Equal(t, true, matches)
-}
-
-func TestRuleNoMatch(t *testing.T) {
-	snap := util.Kind("Deployment", "extensions", "v1beta1")
-	meta := util.GetMeta(snap)
-	meta.SetName("my-snapshot")
-	meta.SetNamespace("my-namespace")
-
-	rule := &Rule{
-		APIGroups: []string{"snapshot.storage.k8s.io"},
-		Resources: []string{"volumesnapshots", "volumesnapshotcontents"},
-	}
-
-	matches, err := rule.Matches(snap)
-	assert.Nil(t, err)
-	assert.Equal(t, false, matches)
-}
-
-func TestRuleMatchNoGroup(t *testing.T) {
-	snap := util.Kind("Deployment", "extensions", "v1beta1")
-	meta := util.GetMeta(snap)
-	meta.SetName("my-snapshot")
-	meta.SetNamespace("my-namespace")
-
-	rule := &Rule{
-		Resources: []string{"deployments"},
-	}
-
-	matches, err := rule.Matches(snap)
-	assert.Nil(t, err)
-	assert.Equal(t, true, matches)
-}
-
-func TestRuleNoMatchNoGroup(t *testing.T) {
-	snap := util.Kind("Secret", "", "v1")
-	meta := util.GetMeta(snap)
-	meta.SetName("my-snapshot")
-	meta.SetNamespace("my-namespace")
-
-	rule := &Rule{
-		Resources: []string{"deployments"},
-	}
-
-	matches, err := rule.Matches(snap)
-	assert.Nil(t, err)
-	assert.Equal(t, false, matches)
-}
-
-func TestRuleMatchNoResources(t *testing.T) {
-	snap := util.Kind("Deployment", "extensions", "v1beta1")
-	meta := util.GetMeta(snap)
-	meta.SetName("my-snapshot")
-	meta.SetNamespace("my-namespace")
-
-	rule := &Rule{
-		APIGroups: []string{"extensions"},
-	}
-
-	matches, err := rule.Matches(snap)
-	assert.Nil(t, err)
-	assert.Equal(t, true, matches)
-}
-
-func TestRuleNoMatchNoResources(t *testing.T) {
-	snap := util.Kind("Deployment", "extensions", "v1beta1")
-	meta := util.GetMeta(snap)
-	meta.SetName("my-snapshot")
-	meta.SetNamespace("my-namespace")
-
-	rule := &Rule{
-		APIGroups: []string{""},
-	}
-
-	matches, err := rule.Matches(snap)
-	assert.Nil(t, err)
-	assert.Equal(t, false, matches)
-}
-
-func TestRuleMatchLabels(t *testing.T) {
-	snap := util.Kind("Deployment", "extensions", "v1beta1")
-	meta := util.GetMeta(snap)
-	meta.SetName("my-snapshot")
-	meta.SetNamespace("my-namespace")
-	meta.SetLabels(map[string]string{"hello": "world",})
-
-	rule := &Rule{
-		Labels: "hello=world",
-	}
-
-	matches, err := rule.Matches(snap)
-	assert.Nil(t, err)
-	assert.Equal(t, true, matches)
-}
-
-func TestRuleNoMatchLabels(t *testing.T) {
-	snap := util.Kind("Deployment", "extensions", "v1beta1")
-	meta := util.GetMeta(snap)
-	meta.SetName("my-snapshot")
-	meta.SetNamespace("my-namespace")
-
-	rule := &Rule{
-		Labels: "hello=world",
-	}
-
-	matches, err := rule.Matches(snap)
-	assert.Nil(t, err)
-	assert.Equal(t, false, matches)
 }
 
 func TestReconciler(t *testing.T) {
@@ -337,7 +328,6 @@ func TestReconciler(t *testing.T) {
 			testObj: types.NamespacedName{"hello", "test"},
 			rules: []Rule{},
 		},
-
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Initialize empty repo for test.

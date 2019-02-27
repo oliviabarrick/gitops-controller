@@ -1,6 +1,7 @@
 package util
 
 import (
+	"io"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -8,6 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
+	"k8s.io/apimachinery/pkg/runtime/serializer/json"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 var (
@@ -50,4 +53,18 @@ func DefaultObject(kind runtime.Object, name, namespace string) runtime.Object {
 	meta.SetName(name)
 	meta.SetNamespace(namespace)
 	return obj
+}
+
+func MarshalObject(o runtime.Object, w io.Writer) error {
+	encoder := json.NewYAMLSerializer(json.DefaultMetaFactory, nil, nil)
+
+	meta := GetMeta(o)
+
+	meta.SetResourceVersion("")
+	meta.SetCreationTimestamp(metav1.Time{})
+	meta.SetSelfLink("")
+	meta.SetUID(types.UID(""))
+	meta.SetGeneration(0)
+
+	return encoder.Encode(o, w)
 }
