@@ -10,6 +10,6 @@ RUN mkdir /ssh && \
 WORKDIR /
 
 COPY ./run.sh /run.sh
-COPY ./git-controller /git-controller
+COPY ./gitops-controller /gitops-controller
 
 ENTRYPOINT ["/run.sh"]

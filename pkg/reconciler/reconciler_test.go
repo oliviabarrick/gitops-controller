@@ -2,8 +2,8 @@ package reconciler
 
 import (
 	"context"
-	"github.com/justinbarrick/git-controller/pkg/repo"
-	"github.com/justinbarrick/git-controller/pkg/util"
+	"github.com/justinbarrick/gitops-controller/pkg/repo"
+	"github.com/justinbarrick/gitops-controller/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/api/errors"

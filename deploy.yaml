@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: git-controller
+  name: gitops-controller
   labels:
     system: "true"
     operator: "true"
@@ -9,13 +9,13 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: git-controller
-  namespace: git-controller
+  name: gitops-controller
+  namespace: gitops-controller
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: git-controller
+  name: gitops-controller
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -23,30 +23,30 @@ roleRef:
 subjects:
 - apiGroup: ""
   kind: ServiceAccount
-  name: git-controller
-  namespace: git-controller
+  name: gitops-controller
+  namespace: gitops-controller
 ---
 apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
-  name: git-controller
-  namespace: git-controller
+  name: gitops-controller
+  namespace: gitops-controller
   labels:
-    app: git-controller
+    app: gitops-controller
 spec:
   selector:
     matchLabels:
-      app: git-controller
+      app: gitops-controller
   template:
     metadata:
       labels:
-        app: git-controller
+        app: gitops-controller
     spec:
-      serviceAccountName: git-controller
+      serviceAccountName: gitops-controller
       containers:
-      - image: justinbarrick/git-controller:latest
+      - image: justinbarrick/gitops-controller:latest
         imagePullPolicy: Always
-        name: git-controller
+        name: gitops-controller
         resources:
           limits:
             memory: "512Mi"
@@ -62,7 +62,7 @@ spec:
           readOnly: true
           mountPath: /ssh/identity
           subPath: identity
-        - name: git-config
+        - name: gitops-config
           readOnly: true
           mountPath: /config.yaml
           subPath: config.yaml
@@ -71,19 +71,19 @@ spec:
         secret:
           secretName: git-ssh
           defaultMode: 0600
-      - name: git-config
+      - name: gitops-config
         configMap:
-          name: git-controller
+          name: gitops-controller
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: git-controller
-  namespace: git-controller
+  name: gitops-controller
+  namespace: gitops-controller
 data:
   config.yaml: |
-    gitUrl: git@github.com:justinbarrick/manifests.git
-    gitPath: manifests
+    gitUrl: git@github.com:justinbarrick/git-controller-test.git
+    gitPath: .
     rules:
     - apiGroups:
       - snapshot.storage.k8s.io

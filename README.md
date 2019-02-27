@@ -1,4 +1,4 @@
-git-controller is a proof-of-concept GitOps controller that can sync from Git to
+gitops-controller is a proof-of-concept GitOps controller that can sync from Git to
 Kubernetes or from Kubernetes to Git.
 
 *It is not yet ready for production use, but feedback is desired.*
@@ -9,7 +9,7 @@ Users can choose on a per-resource basis whether or not a resource should be kep
 sync with its manifest in Git, whether the manifest in Git should be kept in sync with
 the resource in Kubernetes, or whether it is ignored.
 
-The git-controller clones a repository containing Kubernetes manifests and can
+The gitops-controller clones a repository containing Kubernetes manifests and can
 synchronize the repository in either direction. If a resource is configured to be
 kept in sync with the Git repository, it will be updated any time it goes out of sync
 with the Git repository. If a resource is configured to keep the Git repository in
@@ -73,7 +73,7 @@ Configuration format:
 
 # Testing
 
-To try out the git-controller, create a configuration file:
+To try out the gitops-controller, create a configuration file:
 
 ```
 rules:
@@ -90,7 +90,7 @@ Save it as `config.yaml` and then build and run the controller:
 ```
 export GO111MODULE=on
 go build
-./git-controller git@github.com:justinbarrick/git-controller-test.git
+./gitops-controller git@github.com:justinbarrick/gitops-controller-test.git
 ```
 
 Any `VolumeSnapshots` and `VolumeSnapshotContent` resources in the repository will
@@ -98,10 +98,10 @@ be created in your Kubernetes cluster.
 
 # Deployment
 
-To deploy the git-controller, create an SSH secret:
+To deploy the gitops-controller, create an SSH secret:
 
 ```
-kubectl create secret generic git-ssh -n git-controller --from-file=identity=$HOME/.ssh/id_rsa >> deploy.yaml
+kubectl create secret generic git-ssh -n gitops-controller --from-file=identity=$HOME/.ssh/id_rsa >> deploy.yaml
 ```
 
 Update the ConfigMap in deploy.yaml as required and then deploy it:

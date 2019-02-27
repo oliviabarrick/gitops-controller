@@ -8,7 +8,7 @@ import (
 	"github.com/appscode/jsonpatch"
 	patchapply "github.com/evanphx/json-patch"
 	"github.com/jinzhu/inflection"
-	"github.com/justinbarrick/git-controller/pkg/util"
+	"github.com/justinbarrick/gitops-controller/pkg/util"
 	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -196,7 +196,7 @@ func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object) (bool, 
 	return true, nil
 }
 
-// Configuration for the git-controller.
+// Configuration for the gitops-controller.
 type Config struct {
 	// Path inside of the Git repository to use as working directory.
 	GitPath string `yaml:"gitPath,omitempty"`

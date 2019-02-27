@@ -1,5 +1,5 @@
-gitUrl: git@github.com:justinbarrick/manifests.git
-gitPath: manifests
+gitUrl: git@github.com:justinbarrick/git-controller-test.git
+gitPath: .
 rules:
 - apiGroups:
   - snapshot.storage.k8s.io

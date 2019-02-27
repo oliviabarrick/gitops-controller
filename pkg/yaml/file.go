@@ -3,7 +3,7 @@ package yaml
 import (
 	"bufio"
 	"bytes"
-	"github.com/justinbarrick/git-controller/pkg/util"
+	"github.com/justinbarrick/gitops-controller/pkg/util"
 	"gopkg.in/src-d/go-billy.v4"
 	"io"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"

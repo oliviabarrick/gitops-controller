@@ -19,7 +19,7 @@ import (
 var (
 	Scheme    = runtime.NewScheme()
 	defaulter = runtime.ObjectDefaulter(Scheme)
-	Log       = logf.Log.WithName("git-controller")
+	Log       = logf.Log.WithName("gitops-controller")
 )
 
 func init() {

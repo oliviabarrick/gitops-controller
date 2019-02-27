@@ -1,13 +1,13 @@
 package reconciler
 
 import (
-	"github.com/davecgh/go-spew/spew"
 	"context"
 	"fmt"
-	"github.com/justinbarrick/git-controller/pkg/config"
-	"github.com/justinbarrick/git-controller/pkg/repo"
-	"github.com/justinbarrick/git-controller/pkg/util"
-	ryaml "github.com/justinbarrick/git-controller/pkg/yaml"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/justinbarrick/gitops-controller/pkg/config"
+	"github.com/justinbarrick/gitops-controller/pkg/repo"
+	"github.com/justinbarrick/gitops-controller/pkg/util"
+	ryaml "github.com/justinbarrick/gitops-controller/pkg/yaml"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

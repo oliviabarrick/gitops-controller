@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/justinbarrick/git-controller/pkg/config"
-	"github.com/justinbarrick/git-controller/pkg/reconciler"
-	"github.com/justinbarrick/git-controller/pkg/util"
+	"github.com/justinbarrick/gitops-controller/pkg/config"
+	"github.com/justinbarrick/gitops-controller/pkg/reconciler"
+	"github.com/justinbarrick/gitops-controller/pkg/util"
 	"log"
 	"os"
 )

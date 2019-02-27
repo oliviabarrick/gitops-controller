@@ -5,4 +5,4 @@ if [ ! -z "$SSH_KEY_PATH" ]; then
     ssh-add $SSH_KEY_PATH
 fi
 
-exec /git-controller "$@"
+exec /gitops-controller "$@"

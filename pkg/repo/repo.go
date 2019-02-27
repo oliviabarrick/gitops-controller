@@ -2,8 +2,8 @@ package repo
 
 import (
 	"fmt"
-	"github.com/justinbarrick/git-controller/pkg/util"
-	"github.com/justinbarrick/git-controller/pkg/yaml"
+	"github.com/justinbarrick/gitops-controller/pkg/util"
+	"github.com/justinbarrick/gitops-controller/pkg/yaml"
 	"gopkg.in/src-d/go-git.v4"
 
 	"gopkg.in/src-d/go-billy.v4"

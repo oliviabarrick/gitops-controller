@@ -1,4 +1,4 @@
-module github.com/justinbarrick/git-controller
+module github.com/justinbarrick/gitops-controller
 
 require (
 	github.com/BurntSushi/toml v0.3.1 // indirect

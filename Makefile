@@ -6,7 +6,7 @@
 	@cat /tmp/CHANGELOG CHANGELOG > /tmp/NEW_CHANGELOG
 	@mv /tmp/NEW_CHANGELOG CHANGELOG
 
-	@sed -i 's#image: justinbarrick/git-controller:.*#image: justinbarrick/git-controller:$(shell git semver --dryrun $*)#g' deploy.yaml
+	@sed -i 's#image: justinbarrick/gitops-controller:.*#image: justinbarrick/gitops-controller:$(shell git semver --dryrun $*)#g' deploy.yaml
 
 	@git add CHANGELOG deploy.yaml
 	@git commit -m "Release $(shell git semver --dryrun $*)"

@@ -22,7 +22,7 @@ steps:
       DOCKER_PASSWORD:
         from_secret: DOCKER_PASSWORD
     settings:
-      repo: justinbarrick/git-controller
+      repo: justinbarrick/gitops-controller
       tags:
         - ${DRONE_BRANCH}-${DRONE_COMMIT_SHA:0:7}
     when:
@@ -36,7 +36,7 @@ steps:
       DOCKER_PASSWORD:
         from_secret: DOCKER_PASSWORD
     settings:
-      repo: justinbarrick/git-controller
+      repo: justinbarrick/gitops-controller
       tags:
         - ${DRONE_TAG}
         - latest
@@ -50,7 +50,7 @@ steps:
         from_secret: github_token
     settings:
       files:
-        - git-controller
+        - gitops-controller
       checksum:
         - sha256
     when:
