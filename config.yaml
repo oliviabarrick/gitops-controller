@@ -1,14 +1,7 @@
-kinds:
-- kind: VolumeSnapshot
-  group: snapshot.storage.k8s.io
-  apiVersion: v1alpha1
-- kind: VolumeSnapshotContent
-  group: snapshot.storage.k8s.io
-  apiVersion: v1alpha1
 rules:
 - apiGroups:
   - snapshot.storage.k8s.io
   resources: 
   - volumesnapshots
   - volumesnapshotcontents
-  syncTo: kubernetes
+  syncTo: git

@@ -54,15 +54,8 @@ automatically.
 
 Configuration format:
 
-* `kinds`: a list of `kind` objects the controller should track.
 * `rules`: a list of `rule` objects to use when determining how
            changes should be handled.
-
-`kind` objects:
-
-* `kind`: the kind of the resource (e.g., `Deployment`)
-* `group`: the group of the resource (e.g., `extensions`)
-* `apiVersion`: the version of the resource (e.g., `v1beta1`)
 
 `rule` objects:
 
@@ -83,13 +76,6 @@ Configuration format:
 To try out the git-controller, create a configuration file:
 
 ```
-kinds:
-- kind: VolumeSnapshot
-  group: snapshot.storage.k8s.io
-  apiVersion: v1alpha1
-- kind: VolumeSnapshotContent
-  group: snapshot.storage.k8s.io
-  apiVersion: v1alpha1
 rules:
 - apiGroups:
   - snapshot.storage.k8s.io
