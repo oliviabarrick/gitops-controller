@@ -202,6 +202,8 @@ func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object, typeOnl
 
 // Configuration for the gitops-controller.
 type Config struct {
+	// The git branch to use.
+	Branch string `yaml:"branch,omitempty"`
 	// Path inside of the Git repository to use as working directory.
 	GitPath string `yaml:"gitPath,omitempty"`
 	// URL to the Git repository to clone.
@@ -226,6 +228,7 @@ func NewConfig(path string) (*Config, error) {
 
 	config.GitPath = *flag.String("git-path", config.GitPath, "The path inside of the Git repository to work in.")
 	config.GitURL = *flag.String("git-url", config.GitURL, "The URL to the Git repository to clone")
+	config.Branch = *flag.String("branch", config.Branch, "The Git branch to use")
 
 	flag.Parse()
 

@@ -49,7 +49,7 @@ func NewReconciler(config *config.Config) (*Reconciler, error) {
 		return nil, err
 	}
 
-	repo, err := repo.NewRepo(config.GitURL, config.GitPath)
+	repo, err := repo.NewRepo(config.GitURL, config.GitPath, config.Branch)
 	if err != nil {
 		return nil, err
 	}
@@ -307,14 +307,20 @@ func (r *Reconciler) RegisterReconcilersForRules() error {
 // Synchronize the local repository with the origin and generate an event
 // for each object.
 func (r *Reconciler) GitSync() error {
+	r.repo.Lock()
+
 	if err := r.repo.Pull(); err != nil {
+		r.repo.Unlock()
 		return err
 	}
 
 	objects, err := r.repo.LoadRepoYAMLs()
 	if err != nil {
+		r.repo.Unlock()
 		return err
 	}
+
+	r.repo.Unlock()
 
 	for _, obj := range objects {
 		kind := util.GetType(obj.Object)

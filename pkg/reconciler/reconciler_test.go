@@ -221,7 +221,7 @@ func TestReconciler(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Initialize empty repo for test.
-			repo, err := repo.NewRepo("", ".")
+			repo, err := repo.NewRepo("", ".", "")
 			assert.Nil(t, err)
 
 			// If initGit is not nil, add initGit to the repo.

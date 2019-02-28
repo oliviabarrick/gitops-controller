@@ -54,6 +54,9 @@ automatically.
 
 Configuration format:
 
+* `branch`: the git branch to checkout.
+* `gitUrl`: the URL of the Git repository to checkout.
+* `gitPath`: a subdirectory in the Git repository to work in.
 * `rules`: a list of `rule` objects to use when determining how
            changes should be handled.
 

@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"strings"
 	"fmt"
 	"github.com/justinbarrick/gitops-controller/pkg/util"
 	"github.com/justinbarrick/gitops-controller/pkg/yaml"
@@ -8,7 +9,10 @@ import (
 
 	"gopkg.in/src-d/go-billy.v4"
 	"gopkg.in/src-d/go-billy.v4/memfs"
+	"gopkg.in/src-d/go-git.v4/plumbing"
+	gitconfig "gopkg.in/src-d/go-git.v4/config"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
+	"gopkg.in/src-d/go-git.v4/plumbing/transport"
 	"gopkg.in/src-d/go-git.v4/storage/memory"
 	"k8s.io/apimachinery/pkg/runtime"
 	"os"
@@ -25,12 +29,13 @@ type Repo struct {
 	lock    sync.Mutex
 	workDir string
 	repoDir string
+	branch string
 }
 
 // Open a git repository, if repoDir is an empty string, it will initialize a
 // new a git repository. If repoDir is not empty, it will clone the repository into
 // memory.
-func NewRepo(repoDir, workDir string) (*Repo, error) {
+func NewRepo(repoDir, workDir, branch string) (*Repo, error) {
 	fs := memfs.New()
 
 	util.Log.Info("cloning repo", "repo", repoDir)
@@ -46,7 +51,7 @@ func NewRepo(repoDir, workDir string) (*Repo, error) {
 	} else {
 		repo, err = git.Init(memory.NewStorage(), fs)
 	}
-	if err != nil {
+	if err != nil && err != transport.ErrEmptyRemoteRepository {
 		return nil, err
 	}
 
@@ -62,13 +67,20 @@ func NewRepo(repoDir, workDir string) (*Repo, error) {
 		workDir = "."
 	}
 
-	return &Repo{
+	if branch == "" {
+		branch = "master"
+	}
+
+	r := &Repo{
 		fs:      fs,
 		repo:    repo,
 		tree:    tree,
 		repoDir: repoDir,
 		workDir: workDir,
-	}, nil
+		branch: branch,
+	}
+
+	return r, nil
 }
 
 // Return true if the repository has had changes since the last time it was commited
@@ -83,6 +95,7 @@ func (r *Repo) IsClean() (bool, error) {
 }
 
 // Commit staged changes to git, does nothing if there are no changes.
+// Pushes any staged changes.
 func (r *Repo) Commit(message string) error {
 	clean, err := r.IsClean()
 	if err != nil {
@@ -106,6 +119,7 @@ func (r *Repo) Commit(message string) error {
 	}
 
 	util.Log.Info("commited", "commit", commitId.String(), "message", message)
+
 	return r.Push()
 }
 
@@ -190,8 +204,8 @@ func (r *Repo) FindObjectInRepo(obj runtime.Object) (*yaml.Object, error) {
 // Add an object to a repository - if it exists in the repository already, update
 // it in place, if not, create a new file and write it to that file.
 func (r *Repo) AddResource(obj runtime.Object, found *yaml.Object) error {
-	r.lock.Lock()
-	defer r.lock.Unlock()
+	r.Lock()
+	defer r.Unlock()
 
 	found, err := r.FindObjectInRepo(obj)
 	if err != nil {
@@ -230,10 +244,18 @@ func (r *Repo) AddResource(obj runtime.Object, found *yaml.Object) error {
 	return r.Commit(fmt.Sprintf("%s resource %s/%s/%s", action, kind.Kind, meta.GetNamespace(), meta.GetName()))
 }
 
+func (r *Repo) Lock() {
+	r.lock.Lock()
+}
+
+func (r *Repo) Unlock() {
+	r.lock.Unlock()
+}
+
 // Remove an object from the repository if it exists.
 func (r *Repo) RemoveResource(obj runtime.Object, found *yaml.Object) error {
-	r.lock.Lock()
-	defer r.lock.Unlock()
+	r.Lock()
+	defer r.Unlock()
 
 	if found == nil {
 		return nil
@@ -255,6 +277,8 @@ func (r *Repo) RemoveResource(obj runtime.Object, found *yaml.Object) error {
 	return r.Commit(fmt.Sprintf("Removing resource %s/%s/%s", kind.Kind, meta.GetNamespace(), meta.GetName()))
 }
 
+// Push any staged commits to the Git repository. If pushing fails due to an out of
+// date checkout, runs a pull to reset back to the remote state.
 func (r *Repo) Push() error {
 	if r.repoDir == "" {
 		return nil
@@ -267,26 +291,61 @@ func (r *Repo) Push() error {
 	duration := time.Now().Sub(startTime).Seconds()
 	util.Log.Info("pushed", "duration", duration, "repo", r.repoDir)
 
-	if err == git.NoErrAlreadyUpToDate {
+	if err == git.NoErrAlreadyUpToDate || err == nil {
 		return nil
 	}
 
-	return err
+	if ! strings.HasPrefix(err.Error(), git.ErrNonFastForwardUpdate.Error()) {
+		return err
+	}
+
+	util.Log.Info("local repository out of date, reseting", "repo", r.repoDir)
+
+	if err := r.Pull(); err != nil {
+		return err
+	}
+
+	return git.ErrNonFastForwardUpdate
 }
 
+// Update the local checkout with the latest version from the remote.
 func (r *Repo) Pull() error {
 	if r.repoDir == "" {
 		return nil
 	}
 
-	util.Log.Info("pulling", "repo", r.repoDir)
+	util.Log.Info("fetching", "repo", r.repoDir)
 	startTime := time.Now()
-	err := r.tree.Pull(&git.PullOptions{})
+
+	remoteRefName := fmt.Sprintf("refs/remotes/origin/%s", r.branch)
+	refSpec := fmt.Sprintf("+refs/heads/%s:%s", r.branch, remoteRefName)
+
+	err := r.repo.Fetch(&git.FetchOptions{
+		RemoteName: "origin",
+		RefSpecs: []gitconfig.RefSpec{
+			gitconfig.RefSpec(refSpec),
+		},
+	})
+
 	duration := time.Now().Sub(startTime).Seconds()
-	util.Log.Info("pulled", "duration", duration, "repo", r.repoDir)
+	util.Log.Info("fetched", "duration", duration, "repo", r.repoDir)
 
 	if err == git.NoErrAlreadyUpToDate {
 		return nil
+	}
+
+	remoteRef, err := r.repo.Reference(plumbing.ReferenceName(remoteRefName), false)
+	if err != nil {
+		return err
+	}
+
+	util.Log.Info("reset", "repo", r.repoDir, "commit", remoteRef.Hash().String())
+	err = r.tree.Reset(&git.ResetOptions{
+		Commit: remoteRef.Hash(),
+		Mode: git.HardReset,
+	})
+	if err != nil {
+		return err
 	}
 
 	return err
