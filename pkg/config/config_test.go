@@ -216,9 +216,9 @@ func TestRules(t *testing.T) {
 			},
 		},
 		{
-			name:    "type only ignores filters and labels",
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			matches: true,
+			name:     "type only ignores filters and labels",
+			k8sObj:   util.DefaultObject(deployment, "test", "hello"),
+			matches:  true,
 			typeOnly: true,
 			rule: Rule{
 				APIGroups: []string{"extensions"},
@@ -231,9 +231,9 @@ func TestRules(t *testing.T) {
 			},
 		},
 		{
-			name:    "type only ignores filters and labels (mismatch)",
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			matches: false,
+			name:     "type only ignores filters and labels (mismatch)",
+			k8sObj:   util.DefaultObject(deployment, "test", "hello"),
+			matches:  false,
 			typeOnly: true,
 			rule: Rule{
 				APIGroups: []string{"apps"},

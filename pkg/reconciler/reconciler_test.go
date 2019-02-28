@@ -2,9 +2,9 @@ package reconciler
 
 import (
 	"context"
+	"github.com/justinbarrick/gitops-controller/pkg/config"
 	"github.com/justinbarrick/gitops-controller/pkg/repo"
 	"github.com/justinbarrick/gitops-controller/pkg/util"
-	"github.com/justinbarrick/gitops-controller/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
