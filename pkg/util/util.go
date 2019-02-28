@@ -61,7 +61,9 @@ func DefaultObject(kind runtime.Object, name, namespace string) runtime.Object {
 func MarshalObject(o runtime.Object, w io.Writer) error {
 	encoder := json.NewYAMLSerializer(json.DefaultMetaFactory, nil, nil)
 
-	meta := GetMeta(o)
+	copied := o.DeepCopyObject()
+
+	meta := GetMeta(copied)
 
 	meta.SetResourceVersion("")
 	meta.SetCreationTimestamp(metav1.Time{})
@@ -69,7 +71,18 @@ func MarshalObject(o runtime.Object, w io.Writer) error {
 	meta.SetUID(types.UID(""))
 	meta.SetGeneration(0)
 
-	return encoder.Encode(o, w)
+	annotations := meta.GetAnnotations()
+	if annotations != nil {
+		delete(annotations, "kubectl.kubernetes.io/last-applied-configuration")
+		meta.SetAnnotations(annotations)
+	}
+
+	asUnstructured, ok := copied.(*unstructured.Unstructured)
+	if ok {
+		delete(asUnstructured.Object, "status")
+	}
+
+	return encoder.Encode(copied, w)
 }
 
 func PatchMatchesPath(patch jsonpatch.Operation, path string) (bool, error) {
