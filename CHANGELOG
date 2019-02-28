@@ -1,3 +1,8 @@
+Release 0.1.5:
+
+efb8911 (Justin Barrick): gofmt
+d2ac726 (Justin Barrick): Resolve issues with non-fast forward pushes by making commits atomic.
+
 Release 0.1.4:
 
 dbddc70 (Justin Barrick): gofmt
