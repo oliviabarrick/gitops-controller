@@ -4,8 +4,8 @@ import (
 	"context"
 	"github.com/justinbarrick/gitops-controller/pkg/repo"
 	"github.com/justinbarrick/gitops-controller/pkg/util"
+	"github.com/justinbarrick/gitops-controller/pkg/config"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -30,205 +30,6 @@ func labeled(obj runtime.Object) runtime.Object {
 	return obj
 }
 
-func TestRuleLoadYAML(t *testing.T) {
-	config := `
-rules:
-- apiGroups:
-  - snapshot.storage.k8s.io
-  resources: 
-  - volumesnapshots
-  - volumesnapshotcontents
-  labels: sync=true
-  syncTo: kubernetes
-`
-	loaded := &Config{}
-
-	err := yaml.Unmarshal([]byte(config), loaded)
-	assert.Nil(t, err)
-	assert.Equal(t, 1, len(loaded.Rules))
-
-	rule := loaded.Rules[0]
-	assert.Equal(t, []string{"snapshot.storage.k8s.io"}, rule.APIGroups)
-	assert.Equal(t, []string{
-		"volumesnapshots", "volumesnapshotcontents",
-	}, rule.Resources)
-	assert.Equal(t, "sync=true", rule.Labels)
-	assert.Equal(t, Kubernetes, rule.SyncTo)
-}
-
-func TestRules(t *testing.T) {
-	deployment := util.Kind("Deployment", "extensions", "v1beta1")
-
-	for _, test := range []struct {
-		name    string
-		matches bool
-		k8sObj  runtime.Object
-		gitObj  runtime.Object
-		rule    Rule
-	}{
-		{
-			name:    "api group matching",
-			matches: true,
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			rule: Rule{
-				APIGroups: []string{"extensions"},
-				Resources: []string{"deployments"},
-				SyncTo:    Kubernetes,
-			},
-		},
-		{
-			name:    "api group mis-match",
-			matches: false,
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			rule: Rule{
-				APIGroups: []string{"apps"},
-				Resources: []string{"deployments"},
-				SyncTo:    Kubernetes,
-			},
-		},
-		{
-			name:    "resources match",
-			matches: true,
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			rule: Rule{
-				Resources: []string{"deployments"},
-				SyncTo:    Kubernetes,
-			},
-		},
-		{
-			name:    "resources mis-match",
-			matches: false,
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			rule: Rule{
-				APIGroups: []string{"blah"},
-				SyncTo:    Kubernetes,
-			},
-		},
-		{
-			name:    "empty resource, matches any resource",
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			matches: true,
-			rule: Rule{
-				APIGroups: []string{"extensions"},
-				SyncTo:    Kubernetes,
-			},
-		},
-		{
-			name:    "labels match",
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			gitObj:  labeled(util.DefaultObject(deployment, "test", "hello")),
-			matches: true,
-			rule: Rule{
-				Labels: "a=label",
-				SyncTo: Kubernetes,
-			},
-		},
-		{
-			name:    "labels do not match",
-			k8sObj:  labeled(util.DefaultObject(deployment, "test", "hello")),
-			gitObj:  util.DefaultObject(deployment, "test", "hello"),
-			matches: false,
-			rule: Rule{
-				Labels: "a=label",
-				SyncTo: Kubernetes,
-			},
-		},
-		{
-			name:    "labels not set",
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			gitObj:  util.DefaultObject(deployment, "test", "hello"),
-			matches: false,
-			rule: Rule{
-				Labels: "a=label",
-				SyncTo: Kubernetes,
-			},
-		},
-		{
-			name:    "resource not in git",
-			k8sObj:  labeled(util.DefaultObject(deployment, "test", "hello")),
-			matches: false,
-			rule: Rule{
-				Labels: "a=label",
-				SyncTo: Kubernetes,
-			},
-		},
-		{
-			name:    "missing from kubernetes matches git labels",
-			gitObj:  labeled(util.DefaultObject(deployment, "test", "hello")),
-			matches: true,
-			rule: Rule{
-				Labels: "a=label",
-				SyncTo: Kubernetes,
-			},
-		},
-		{
-			name:    "filter rules match change details",
-			gitObj:  annotated(util.DefaultObject(deployment, "test", "hello")),
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			matches: true,
-			rule: Rule{
-				Filters: []string{
-					"/metadata/annotations",
-				},
-				SyncTo: Kubernetes,
-			},
-		},
-		{
-			name:    "filter rules mis-match change details",
-			gitObj:  labeled(util.DefaultObject(deployment, "test", "hello")),
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			matches: false,
-			rule: Rule{
-				Filters: []string{
-					"/metadata/annotations",
-				},
-				SyncTo: Kubernetes,
-			},
-		},
-		{
-			name:    "filter rules match changes underneath filter",
-			gitObj:  labeled(util.DefaultObject(deployment, "test", "hello")),
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			matches: true,
-			rule: Rule{
-				Filters: []string{
-					"/metadata",
-				},
-				SyncTo: Kubernetes,
-			},
-		},
-		{
-			name:    "filter rules mis-match changes not underneath filter",
-			gitObj:  labeled(util.DefaultObject(deployment, "test", "hello")),
-			k8sObj:  util.DefaultObject(deployment, "test", "hello"),
-			matches: false,
-			rule: Rule{
-				Filters: []string{
-					"/spec",
-				},
-				SyncTo: Kubernetes,
-			},
-		},
-		{
-			name:    "filter always matches if the object needs to be created or deleted",
-			gitObj:  labeled(util.DefaultObject(deployment, "test", "hello")),
-			matches: true,
-			rule: Rule{
-				Filters: []string{
-					"/spec",
-				},
-				SyncTo: Kubernetes,
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			matches, err := test.rule.Matches(test.k8sObj, test.gitObj)
-			assert.Nil(t, err)
-			assert.Equal(t, test.matches, matches)
-		})
-	}
-}
-
 func TestReconciler(t *testing.T) {
 	deployment := util.Kind("Deployment", "extensions", "v1beta1")
 
@@ -240,7 +41,7 @@ func TestReconciler(t *testing.T) {
 		initGit     runtime.Object
 		expectedGit runtime.Object
 		expectedK8s runtime.Object
-		rules       []Rule
+		rules       []config.Rule
 	}{
 		{
 			name:        "Git rule adds objects in kubernetes to kubernetes",
@@ -249,11 +50,11 @@ func TestReconciler(t *testing.T) {
 			initK8s:     util.DefaultObject(deployment, "test", "hello"),
 			expectedGit: util.DefaultObject(deployment, "test", "hello"),
 			expectedK8s: util.DefaultObject(deployment, "test", "hello"),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Resources: []string{"deployments"},
 					APIGroups: []string{"extensions"},
-					SyncTo:    Git,
+					SyncTo:    config.Git,
 				},
 			},
 		},
@@ -264,11 +65,11 @@ func TestReconciler(t *testing.T) {
 			initGit:     util.DefaultObject(deployment, "test", "hello"),
 			expectedK8s: util.DefaultObject(deployment, "test", "hello"),
 			expectedGit: util.DefaultObject(deployment, "test", "hello"),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Resources: []string{"deployments"},
 					APIGroups: []string{"extensions"},
-					SyncTo:    Kubernetes,
+					SyncTo:    config.Kubernetes,
 				},
 			},
 		},
@@ -277,11 +78,11 @@ func TestReconciler(t *testing.T) {
 			kind:    deployment,
 			testObj: types.NamespacedName{"hello", "test"},
 			initGit: util.DefaultObject(deployment, "test", "hello"),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Resources: []string{"deployments"},
 					APIGroups: []string{"extensions"},
-					SyncTo:    Git,
+					SyncTo:    config.Git,
 				},
 			},
 		},
@@ -290,11 +91,11 @@ func TestReconciler(t *testing.T) {
 			kind:    deployment,
 			testObj: types.NamespacedName{"hello", "test"},
 			initK8s: util.DefaultObject(deployment, "test", "hello"),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Resources: []string{"deployments"},
 					APIGroups: []string{"extensions"},
-					SyncTo:    Kubernetes,
+					SyncTo:    config.Kubernetes,
 				},
 			},
 		},
@@ -306,11 +107,11 @@ func TestReconciler(t *testing.T) {
 			initK8s:     annotated(util.DefaultObject(deployment, "test", "hello")),
 			expectedK8s: annotated(util.DefaultObject(deployment, "test", "hello")),
 			expectedGit: annotated(util.DefaultObject(deployment, "test", "hello")),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Resources: []string{"deployments"},
 					APIGroups: []string{"extensions"},
-					SyncTo:    Git,
+					SyncTo:    config.Git,
 				},
 			},
 		},
@@ -322,11 +123,11 @@ func TestReconciler(t *testing.T) {
 			initK8s:     util.DefaultObject(deployment, "test", "hello"),
 			expectedK8s: annotated(util.DefaultObject(deployment, "test", "hello")),
 			expectedGit: annotated(util.DefaultObject(deployment, "test", "hello")),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Resources: []string{"deployments"},
 					APIGroups: []string{"extensions"},
-					SyncTo:    Kubernetes,
+					SyncTo:    config.Kubernetes,
 				},
 			},
 		},
@@ -338,16 +139,16 @@ func TestReconciler(t *testing.T) {
 			initK8s:     util.DefaultObject(deployment, "test", "hello"),
 			expectedK8s: annotated(util.DefaultObject(deployment, "test", "hello")),
 			expectedGit: annotated(util.DefaultObject(deployment, "test", "hello")),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Resources: []string{"deployments"},
 					APIGroups: []string{"extensions"},
-					SyncTo:    Kubernetes,
+					SyncTo:    config.Kubernetes,
 				},
-				Rule{
+				config.Rule{
 					Resources: []string{"deployments"},
 					APIGroups: []string{"extensions"},
-					SyncTo:    Git,
+					SyncTo:    config.Git,
 				},
 			},
 		},
@@ -359,11 +160,11 @@ func TestReconciler(t *testing.T) {
 			initK8s:     util.DefaultObject(deployment, "test", "hello"),
 			expectedK8s: util.DefaultObject(deployment, "test", "hello"),
 			expectedGit: annotated(util.DefaultObject(deployment, "test", "hello")),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Resources: []string{"secrets"},
 					APIGroups: []string{""},
-					SyncTo:    Git,
+					SyncTo:    config.Git,
 				},
 			},
 		},
@@ -374,10 +175,10 @@ func TestReconciler(t *testing.T) {
 			initGit:     labeled(util.DefaultObject(deployment, "test", "hello")),
 			expectedK8s: labeled(util.DefaultObject(deployment, "test", "hello")),
 			expectedGit: labeled(util.DefaultObject(deployment, "test", "hello")),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Labels: "a=label",
-					SyncTo: Kubernetes,
+					SyncTo: config.Kubernetes,
 				},
 			},
 		},
@@ -385,7 +186,7 @@ func TestReconciler(t *testing.T) {
 			name:    "Delete does not crash",
 			kind:    deployment,
 			testObj: types.NamespacedName{"hello", "test"},
-			rules:   []Rule{},
+			rules:   []config.Rule{},
 		},
 		{
 			name:        "Rule with filters respects filters when patching",
@@ -395,10 +196,10 @@ func TestReconciler(t *testing.T) {
 			initGit:     labeled(util.DefaultObject(deployment, "test", "hello")),
 			expectedK8s: annotated(labeled(util.DefaultObject(deployment, "test", "hello"))),
 			expectedGit: labeled(util.DefaultObject(deployment, "test", "hello")),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Filters: []string{"/metadata/labels"},
-					SyncTo:  Kubernetes,
+					SyncTo:  config.Kubernetes,
 				},
 			},
 		},
@@ -410,10 +211,10 @@ func TestReconciler(t *testing.T) {
 			initGit:     annotated(util.DefaultObject(deployment, "test", "hello")),
 			expectedK8s: labeled(util.DefaultObject(deployment, "test", "hello")),
 			expectedGit: annotated(labeled(util.DefaultObject(deployment, "test", "hello"))),
-			rules: []Rule{
-				Rule{
+			rules: []config.Rule{
+				config.Rule{
 					Filters: []string{"/metadata/labels"},
-					SyncTo:  Git,
+					SyncTo:  config.Git,
 				},
 			},
 		},
@@ -440,7 +241,7 @@ func TestReconciler(t *testing.T) {
 			reconciler := &Reconciler{
 				client: client,
 				repo:   repo,
-				config: &Config{
+				config: &config.Config{
 					Rules: test.rules,
 				},
 			}

@@ -3,7 +3,6 @@ package reconciler
 import (
 	"context"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/justinbarrick/gitops-controller/pkg/config"
 	"github.com/justinbarrick/gitops-controller/pkg/repo"
 	"github.com/justinbarrick/gitops-controller/pkg/util"
@@ -62,43 +61,7 @@ func NewReconciler(config *config.Config) (*Reconciler, error) {
 		sources: []Source{},
 	}
 
-	dClient := discovery.NewDiscoveryClientForConfigOrDie(mgr.GetConfig())
-	resourceTypes, err := dClient.ServerPreferredResources()
-	for _, resourceType := range resourceTypes {
-		for _, resource := range resourceType.APIResources {
-			group := ""
-			version := ""
-
-			splitVersion := strings.Split(resourceType.GroupVersion, "/")
-			if len(splitVersion) == 1 {
-				version = splitVersion[0]
-			} else {
-				version = splitVersion[1]
-				group = splitVersion[0]
-			}
-
-			hasRequiredVerbs := true
-			for _, verb := range []string{"watch", "list", "get", "update", "delete"} {
-				if !util.Contains(resource.Verbs, verb) {
-					hasRequiredVerbs = false
-				}
-			}
-
-			if !hasRequiredVerbs || len(resource.Verbs) == 0 {
-				continue
-			}
-
-			if resource.Kind == "ReplicationControllerDummy" {
-				spew.Dump(resource)
-			}
-
-			if err := r.Register(util.Kind(resource.Kind, group, version)); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return r, nil
+	return r, r.RegisterReconcilersForRules()
 }
 
 // Register the reconciler for each prototype object provided.
@@ -162,7 +125,7 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) reconcile.Func {
 		}
 
 		// Get a rule that matches the object.
-		rule, err := r.config.RuleForObject(k8sState, gitStateObj)
+		rule, err := r.config.RuleForObject(k8sState, gitStateObj, false)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -194,6 +157,7 @@ func (r *Reconciler) ReconcilerForType(kind runtime.Object) reconcile.Func {
 	})
 }
 
+// Synchronize the object in a git repository with its actual state in Kubernetes.
 func (r *Reconciler) SyncObjectToGit(k8sState runtime.Object, gitState *ryaml.Object, rule *config.Rule) error {
 	var err error
 
@@ -210,13 +174,10 @@ func (r *Reconciler) SyncObjectToGit(k8sState runtime.Object, gitState *ryaml.Ob
 		err = r.repo.AddResource(k8sState, gitState)
 	}
 
-	if err != nil {
-		return err
-	}
-
-	return r.repo.Push()
+	return err
 }
 
+// Synchronize the object in Kubernetes with its actual state in Git.
 func (r *Reconciler) SyncObjectToKubernetes(k8sState runtime.Object, gitState *ryaml.Object, rule *config.Rule) error {
 	if k8sState == nil && gitState == nil {
 		return nil
@@ -258,6 +219,7 @@ func (r *Reconciler) SyncObjectToKubernetes(k8sState runtime.Object, gitState *r
 	return r.client.Update(context.TODO(), patched)
 }
 
+// Register a new reconciler of the given type.
 func (r *Reconciler) RegisterReconcilerForType(kind runtime.Object) error {
 	gvk := kind.GetObjectKind().GroupVersionKind()
 	strKind := gvk.Kind
@@ -291,6 +253,58 @@ func (r *Reconciler) RegisterReconcilerForType(kind runtime.Object) error {
 	}, &handler.EnqueueRequestForObject{})
 }
 
+// Register a reconciler for every type in the cluster that is matched by
+// rules from the configuration.
+func (r *Reconciler) RegisterReconcilersForRules() error {
+	dClient, err := discovery.NewDiscoveryClientForConfig(r.mgr.GetConfig())
+	if err != nil {
+		return err
+	}
+
+	resourceTypes, err := dClient.ServerPreferredResources()
+	for _, resourceType := range resourceTypes {
+		for _, resource := range resourceType.APIResources {
+			group := ""
+			version := ""
+
+			splitVersion := strings.Split(resourceType.GroupVersion, "/")
+			if len(splitVersion) == 1 {
+				version = splitVersion[0]
+			} else {
+				version = splitVersion[1]
+				group = splitVersion[0]
+			}
+
+			hasRequiredVerbs := true
+			for _, verb := range []string{"watch", "list", "get", "update", "delete"} {
+				if !util.Contains(resource.Verbs, verb) {
+					hasRequiredVerbs = false
+				}
+			}
+
+			if !hasRequiredVerbs || len(resource.Verbs) == 0 {
+				continue
+			}
+
+			kind := util.Kind(resource.Kind, group, version)
+
+			if matchedRule, err := r.config.RuleForObject(kind, nil, true); err != nil {
+				return err
+			} else if matchedRule == nil {
+				continue
+			}
+
+			if err := r.Register(kind); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// Synchronize the local repository with the origin and generate an event
+// for each object.
 func (r *Reconciler) GitSync() error {
 	if err := r.repo.Pull(); err != nil {
 		return err
@@ -321,6 +335,7 @@ func (r *Reconciler) GitSync() error {
 	return nil
 }
 
+// Start the controller.
 func (r *Reconciler) Start() error {
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {

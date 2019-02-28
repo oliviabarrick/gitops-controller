@@ -106,7 +106,7 @@ func (r *Repo) Commit(message string) error {
 	}
 
 	util.Log.Info("commited", "commit", commitId.String(), "message", message)
-	return nil
+	return r.Push()
 }
 
 // Add a file to the repository.
@@ -260,9 +260,6 @@ func (r *Repo) Push() error {
 		return nil
 	}
 
-	r.lock.Lock()
-	defer r.lock.Unlock()
-
 	util.Log.Info("pushing", "repo", r.repoDir)
 	startTime := time.Now()
 	err := r.repo.Push(&git.PushOptions{})
@@ -281,9 +278,6 @@ func (r *Repo) Pull() error {
 	if r.repoDir == "" {
 		return nil
 	}
-
-	r.lock.Lock()
-	defer r.lock.Unlock()
 
 	util.Log.Info("pulling", "repo", r.repoDir)
 	startTime := time.Now()

@@ -124,7 +124,7 @@ func (r *Rule) NormalizedResources() []string {
 // 3. If labels are not set in Git and SyncTo is Kubernetes, rule does not match.
 // 4. If labels are not set in Kubernetes and SyncTo is Git, rule does not match.
 // 5. Rule matches.
-func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object) (bool, error) {
+func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object, typeOnly bool) (bool, error) {
 	var obj runtime.Object
 	if k8sState != nil {
 		obj = k8sState
@@ -140,6 +140,10 @@ func (r *Rule) Matches(k8sState runtime.Object, gitState runtime.Object) (bool, 
 
 	if !util.Contains(r.APIGroups, kind.Group) {
 		return false, nil
+	}
+
+	if typeOnly {
+		return true, nil
 	}
 
 	original := gitState
@@ -232,9 +236,9 @@ func NewConfig(path string) (*Config, error) {
 	return config, nil
 }
 
-func (c *Config) RuleForObject(k8sState runtime.Object, gitState runtime.Object) (*Rule, error) {
+func (c *Config) RuleForObject(k8sState runtime.Object, gitState runtime.Object, typeOnly bool) (*Rule, error) {
 	for _, rule := range c.Rules {
-		match, err := rule.Matches(k8sState, gitState)
+		match, err := rule.Matches(k8sState, gitState, typeOnly)
 		if err != nil {
 			return nil, err
 		}
