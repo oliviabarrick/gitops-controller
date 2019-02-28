@@ -1,3 +1,8 @@
+Release 0.1.2:
+
+ba5d84e (Justin Barrick): gofmt
+cf10d39 (Justin Barrick): optimize reconcile performance
+
 Release 0.1.1:
 
 d640178 (Justin Barrick): Do not pull on every object
