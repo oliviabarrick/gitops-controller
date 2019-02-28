@@ -1,3 +1,7 @@
+Release 0.1.6:
+
+869e98f (Justin Barrick): strip certain annotations and status field from serialized yaml
+
 Release 0.1.5:
 
 efb8911 (Justin Barrick): gofmt
