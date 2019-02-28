@@ -43,6 +43,7 @@ type Reconciler struct {
 func NewReconciler(config *config.Config) (*Reconciler, error) {
 	mgr, err := manager.New(k8sconfig.GetConfigOrDie(), manager.Options{
 		Scheme: util.Scheme,
+		MetricsBindAddress: ":9111",
 	})
 	if err != nil {
 		return nil, err

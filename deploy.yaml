@@ -54,6 +54,19 @@ spec:
           requests:
             memory: "256Mi"
             cpu: "50m"
+        ports:
+        - containerPort: 9111
+          name: metrics
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9111
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9111
+          initialDelaySeconds: 5
+          periodSeconds: 10
         env:
         - name: SSH_KEY_PATH
           value: /ssh/identity
@@ -74,6 +87,19 @@ spec:
       - name: gitops-config
         configMap:
           name: gitops-controller
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitops-controller
+  namespace: gitops-controller
+  annotations:
+     scrape-metrics: "true"
+spec:
+  ports:
+    - port: 9111
+  selector:
+    app: gitops-controller
 ---
 apiVersion: v1
 kind: ConfigMap
