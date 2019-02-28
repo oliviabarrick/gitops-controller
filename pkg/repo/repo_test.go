@@ -1,17 +1,17 @@
 package repo
 
 import (
-	"sort"
 	"github.com/stretchr/testify/assert"
-	"testing"
 	"gopkg.in/src-d/go-billy.v4/osfs"
+	"sort"
+	"testing"
 	//"gopkg.in/src-d/go-billy.v4/memfs"
 	"gopkg.in/src-d/go-git.v4"
-	"gopkg.in/src-d/go-git.v4/storage/filesystem"
 	"gopkg.in/src-d/go-git.v4/plumbing/cache"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
-	"os"
+	"gopkg.in/src-d/go-git.v4/storage/filesystem"
 	"io/ioutil"
+	"os"
 )
 
 func doCommit(path, text string, r *Repo) (string, error) {

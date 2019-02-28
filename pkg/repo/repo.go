@@ -1,16 +1,16 @@
 package repo
 
 import (
-	"strings"
 	"fmt"
 	"github.com/justinbarrick/gitops-controller/pkg/util"
 	"github.com/justinbarrick/gitops-controller/pkg/yaml"
 	"gopkg.in/src-d/go-git.v4"
+	"strings"
 
 	"gopkg.in/src-d/go-billy.v4"
 	"gopkg.in/src-d/go-billy.v4/memfs"
-	"gopkg.in/src-d/go-git.v4/plumbing"
 	gitconfig "gopkg.in/src-d/go-git.v4/config"
+	"gopkg.in/src-d/go-git.v4/plumbing"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
 	"gopkg.in/src-d/go-git.v4/plumbing/transport"
 	"gopkg.in/src-d/go-git.v4/storage/memory"
@@ -29,7 +29,7 @@ type Repo struct {
 	lock    sync.Mutex
 	workDir string
 	repoDir string
-	branch string
+	branch  string
 }
 
 // Open a git repository, if repoDir is an empty string, it will initialize a
@@ -77,7 +77,7 @@ func NewRepo(repoDir, workDir, branch string) (*Repo, error) {
 		tree:    tree,
 		repoDir: repoDir,
 		workDir: workDir,
-		branch: branch,
+		branch:  branch,
 	}
 
 	return r, nil
@@ -295,7 +295,7 @@ func (r *Repo) Push() error {
 		return nil
 	}
 
-	if ! strings.HasPrefix(err.Error(), git.ErrNonFastForwardUpdate.Error()) {
+	if !strings.HasPrefix(err.Error(), git.ErrNonFastForwardUpdate.Error()) {
 		return err
 	}
 
@@ -342,7 +342,7 @@ func (r *Repo) Pull() error {
 	util.Log.Info("reset", "repo", r.repoDir, "commit", remoteRef.Hash().String())
 	err = r.tree.Reset(&git.ResetOptions{
 		Commit: remoteRef.Hash(),
-		Mode: git.HardReset,
+		Mode:   git.HardReset,
 	})
 	if err != nil {
 		return err
