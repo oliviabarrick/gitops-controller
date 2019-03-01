@@ -44,7 +44,7 @@ spec:
     spec:
       serviceAccountName: gitops-controller
       containers:
-      - image: justinbarrick/gitops-controller:0.1.7
+      - image: justinbarrick/gitops-controller:0.1.8
         imagePullPolicy: Always
         name: gitops-controller
         resources:
