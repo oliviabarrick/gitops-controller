@@ -74,7 +74,7 @@ Configuration format:
             resources from Git to Kubernetes, `git` to sync resources from Kubernetes
             to Git.
 
-# Testing
+# Running locally
 
 To try out the gitops-controller, create a configuration file:
 
