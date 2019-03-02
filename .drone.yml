@@ -18,9 +18,9 @@ steps:
     image: plugins/docker
     environment:
       DOCKER_USERNAME:
-        from_secret: DOCKER_USERNAME
+        from_secret: docker_username
       DOCKER_PASSWORD:
-        from_secret: DOCKER_PASSWORD
+        from_secret: docker_password
     settings:
       repo: justinbarrick/gitops-controller
       tags:
@@ -32,9 +32,9 @@ steps:
     image: plugins/docker
     environment:
       DOCKER_USERNAME:
-        from_secret: DOCKER_USERNAME
+        from_secret: docker_username
       DOCKER_PASSWORD:
-        from_secret: DOCKER_PASSWORD
+        from_secret: docker_password
     settings:
       repo: justinbarrick/gitops-controller
       tags:
@@ -89,3 +89,22 @@ steps:
         Pushed <https://hub.docker.com/r/{{repo.owner}}/{{repo.name}}|{{repo.owner}}/{{repo.name}}:${DRONE_TAG}> to Dockerhub.
     when:
       event: tag
+---
+kind: secret
+
+external_data:
+  docker_password:
+    path: secrets/data/docker
+    name: username
+  docker_username:
+    path: secrets/data/docker
+    name: password
+  slack_url:
+    path: secrets/data/slack
+    name: slack_url
+  slack_channel:
+    path: secrets/data/slack
+    name: slack_channel
+  github_token:
+    path: secrets/data/github
+    name: github_token
